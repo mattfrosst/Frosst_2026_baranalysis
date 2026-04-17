@@ -130,9 +130,25 @@ for     idir,  Dir  in enumerate(BoxDir):
     dx             = xbin[1] - xbin[0] # Bins are equally spaced in x
     xbin_linear    = np.append(0,10**xbin[:])
     print('xbin:', xbin, 'dx: ', dx, 'xbin_linear: ', xbin_linear)
-    
-    nstar_count    = np.zeros(len(lhalo),dtype=int)
-    
+
+    # --- number of stars per bin (nB) and the number of stars analyised (?)
+    nB_stars    = np.zeros((len(lhalo),Nprof));
+    nstar_count = np.zeros(len(lhalo),dtype=int);
+
+    # --- mass weighted bin edges (left, right -> R0, R1) and middle (Rm)
+    R0_prof_stars = np.zeros((len(lhalo),Nprof));
+    Rm_prof_stars = np.zeros((len(lhalo),Nprof));
+    R1_prof_stars = np.zeros((len(lhalo),Nprof));
+
+    # --- mass weighted 2nd fourier amplitude and error
+    A2_prof_stars    = np.zeros((len(lhalo),Nprof));
+    A2err_prof_stars = np.zeros((len(lhalo),Nprof));
+
+    # --- mass weighted 2nd fourier position angle and error
+    Phi2_prof_stars    = np.zeros((len(lhalo),Nprof));
+    Phi2err_prof_stars = np.zeros((len(lhalo),Nprof));
+
+    # --- How many files do we need to look at?
     total_files  = 0 
     for root, _, filenames in os.walk(BasePath+Dir+RunDir+"snapshots/"+SnapBase+ext4+"/"):
         total_files += len(filenames) - 1
@@ -187,75 +203,26 @@ for     idir,  Dir  in enumerate(BoxDir):
                 pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
                 vel_tree = (trans @ vel_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
 
-                plt.scatter(pos_tree[:,0], pos_tree[:,1])
-                plt.show()
-
                 bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
                 binData   = bar_tool.analyseBins(xbin_linear)
                 b0, b1    = bar_tool.findBarRegion(binData, minA2Bar=0.2, maxDPsi=15.0, minDexBar=0.15, minNumBar=200)
-                print(b0, b1)
                 
-                print('nB', binData[:,0])
-                print('R0', binData[:,1])
-                print('Rm', binData[:,2])
-                print('R1', binData[:,3])
-                print('Sd0', binData[:,4])
-                print('AP2mean0', binData[:,5])
-                print('AP2std0', binData[:,6])
-                print('AP2mean1', binData[:,7])
-                print('AP2std1', binData[:,8])
-
-                plt.scatter(binData[:,2], np.log10(binData[:,4]))
-                plt.axvline(binData[:,2][b0], c='r'); plt.axvline(binData[:,2][b1], c='r')
-                plt.show()
-                
-                plt.scatter(binData[:,2], binData[:,5])
-                plt.axvline(binData[:,2][b0], c='r'); plt.axvline(binData[:,2][b1], c='r')
-                plt.show()
-                    
-                plt.scatter(binData[:,2], binData[:,7])
-                plt.axvline(binData[:,2][b0], c='r'); plt.axvline(binData[:,2][b1], c='r')
-                plt.show()
-                
-                #for i in range(Nprof):
-                    # --- Calculate the following bar properties:
-                    #       nB, R0, Rm, R1, Sd0,
-                    #       A2, A2_error
-                    #       Phi2, Phi2_error
-
-                    
-                    ##stop
-                    #
-                    ## -- How many particles in this bin
-                    #Nproj_stars[ihalo,i]      = binData[:,0]
-                    #
-                    ## --- Now, fourier analysis
-                    #Mproj_a0_stars[ihalo,i]    = fourier_a_component(mass_mask, pos_mask, m=0)
-                    ##L_z_proj_A0_stars[ihalo,i] = fourier_a_component(mass_mask, pos_mask, m=0)
-                    ##L_Y_proj_A0_stars[ihalo,i] = fourier_a_component(mass_mask, pos_mask, m=0)
-                    #Mproj_a2_stars[ihalo,i]    = fourier_a_component(mass_mask, pos_mask, m=2)
-                    ##L_z_proj_A2_stars[ihalo,i] = fourier_a_component(mass_mask, pos_mask, m=2)
-                    ##L_Y_proj_A2_stars[ihalo,i] = fourier_a_component(mass_mask, pos_mask, m=2)
-                    #Mproj_b2_stars[ihalo,i]    = fourier_b_component(mass_mask, pos_mask, m=2)
-                    ##L_z_proj_B2_stars[ihalo,i] = fourier_b_component(mass_mask, pos_mask, m=2)
-                    ##L_z_proj_B2_stars[ihalo,i] = fourier_b_component(mass_mask, pos_mask, m=2)
-                
-                # --- calculate A2profile and Phi2profile
-                #Mproj_A2prof_stars[ihalo,:]   = fourier_AM_component(Mproj_a2_stars[ihalo,:], Mproj_b2_stars[ihalo,:], Mproj_a0_stars[ihalo,:])
-                #Mproj_Phi2prof_stars[ihalo,:] = fourier_phi_component(Mproj_a2_stars[ihalo,:], Mproj_b2_stars[ihalo,:])
+                nB_stars[ihalo, :]           = binData[:,0]
+                R0_prof_stars[ihalo, :]      = binData[:,1]
+                Rm_prof_stars[ihalo, :]      = binData[:,2]
+                R1_prof_stars[ihalo, :]      = binData[:,3]
+                A2_prof_stars[ihalo, :]      = binData[:,4]
+                A2err_prof_stars[ihalo, :]   = binData[:,5]
+                Phi2_prof_stars[ihalo, :]    = binData[:,6]
+                Phi2err_prof_stars[ihalo, :] = binData[:,7]
                 
         fracs     = round(float(ihalo+1)/len(lhalo),4)
         if ihalo % 100  ==0:
             print(' Group:',lh,' | f:',fracs)
         elif ihalo   ==len(lhalo)-1:
             print(' Group:',lh,' | f:',fracs)
-
-        #stop
         
-    # Normalize the profiles
-    xbin_cum         = 10.**xbin
-    xbin             = 10.**(xbin - 0.5*dx)
-    
+    # --- Write to hdf5
     fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"
     print('\n Writing to:',fn)
 
@@ -264,43 +231,45 @@ for     idir,  Dir  in enumerate(BoxDir):
     grp1    = output.create_group("HaloData")
     grp2    = output.create_group("Profiles")
 
-    dset    = grp0.create_dataset('Redshift',       data = 1./ScaleFactor - 1,  dtype = 'float')
+    dset    = grp0.create_dataset('Redshift',       data = 1./ScaleFactor - 1,     dtype = 'float')
 
-    dset    = grp1.create_dataset('TrackId',        data = TrackId,             dtype = 'int')
-    dset    = grp1.create_dataset('is_central',     data = is_central,          dtype = 'int')
-    dset    = grp1.create_dataset('NumStellarPart', data = nstar,               dtype = 'int')
-    dset    = grp1.create_dataset('NumGasPart',     data = ngas,                dtype = 'int')
-    dset    = grp1.create_dataset('N200_DM',        data = N200,                dtype = 'int')
-    dset    = grp1.create_dataset('M200',           data = M200,                dtype = 'float')
-    Mset    = grp1.create_dataset('r200',           data = r200,                dtype = 'float')
-    dset    = grp1.create_dataset('MeanStellarAge', data = mean_stellar_age,    dtype = 'float')
-    dset    = grp1.create_dataset('DT',             data = DT,                  dtype = 'float')
-    dset    = grp1.create_dataset('fsub200',        data = fsub,                dtype = 'float')
-    dset    = grp1.create_dataset('Lstar_rband',    data = Lstar_r,             dtype = 'float')
-    dset    = grp1.create_dataset('Lstar_zband',    data = Lstar_z,             dtype = 'float')
-    dset    = grp1.create_dataset('Lstar_Yband',    data = Lstar_Y,             dtype = 'float')
-    dset    = grp1.create_dataset('StellarMass',    data = mstar,               dtype = 'float')
-    dset    = grp1.create_dataset('GasMass',        data = mgas,                dtype = 'float')
-    dset    = grp1.create_dataset('H2Mass',         data = mH2,                 dtype = 'float')
-    dset    = grp1.create_dataset('HIMass',         data = mHI,                 dtype = 'float')
-    dset    = grp1.create_dataset('r50_stars',      data = rhalf_stars,         dtype = 'float')
-    dset    = grp1.create_dataset('angJ_stars',     data = angJ_stars,          dtype = 'float')
-    dset    = grp1.create_dataset('angJ_gas',       data = angJ_gas,            dtype = 'float')
-    dset    = grp1.create_dataset('angJ_DM',        data = angJ_DM,             dtype = 'float')
-    dset    = grp1.create_dataset('angtot_stars',   data = angtot_stars,        dtype = 'float')
-    dset    = grp1.create_dataset('angtot_gas',     data = angtot_gas,          dtype = 'float')
-    dset    = grp1.create_dataset('angtot_DM',      data = angtot_DM,           dtype = 'float')
-    dset    = grp1.create_dataset('SFR_50kpc',      data = SFR,                 dtype = 'float')
+    dset    = grp1.create_dataset('TrackId',        data = TrackId,                dtype = 'int')
+    dset    = grp1.create_dataset('is_central',     data = is_central,             dtype = 'int')
+    dset    = grp1.create_dataset('NumStellarPart', data = nstar,                  dtype = 'int')
+    dset    = grp1.create_dataset('NumGasPart',     data = ngas,                   dtype = 'int')
+    dset    = grp1.create_dataset('N200_DM',        data = N200,                   dtype = 'int')
+    dset    = grp1.create_dataset('M200',           data = M200,                   dtype = 'float')
+    Mset    = grp1.create_dataset('r200',           data = r200,                   dtype = 'float')
+    dset    = grp1.create_dataset('MeanStellarAge', data = mean_stellar_age,       dtype = 'float')
+    dset    = grp1.create_dataset('DT',             data = DT,                     dtype = 'float')
+    dset    = grp1.create_dataset('fsub200',        data = fsub,                   dtype = 'float')
+    dset    = grp1.create_dataset('Lstar_rband',    data = Lstar_r,                dtype = 'float')
+    dset    = grp1.create_dataset('Lstar_zband',    data = Lstar_z,                dtype = 'float')
+    dset    = grp1.create_dataset('Lstar_Yband',    data = Lstar_Y,                dtype = 'float')
+    dset    = grp1.create_dataset('StellarMass',    data = mstar,                  dtype = 'float')
+    dset    = grp1.create_dataset('GasMass',        data = mgas,                   dtype = 'float')
+    dset    = grp1.create_dataset('H2Mass',         data = mH2,                    dtype = 'float')
+    dset    = grp1.create_dataset('HIMass',         data = mHI,                    dtype = 'float')
+    dset    = grp1.create_dataset('r50_stars',      data = rhalf_stars,            dtype = 'float')
+    dset    = grp1.create_dataset('angJ_stars',     data = angJ_stars,             dtype = 'float')
+    dset    = grp1.create_dataset('angJ_gas',       data = angJ_gas,               dtype = 'float')
+    dset    = grp1.create_dataset('angJ_DM',        data = angJ_DM,                dtype = 'float')
+    dset    = grp1.create_dataset('angtot_stars',   data = angtot_stars,           dtype = 'float')
+    dset    = grp1.create_dataset('angtot_gas',     data = angtot_gas,             dtype = 'float')
+    dset    = grp1.create_dataset('angtot_DM',      data = angtot_DM,              dtype = 'float')
+    dset    = grp1.create_dataset('SFR_50kpc',      data = SFR,                    dtype = 'float')
     
-    dset    = grp2.create_dataset('xbin',           data = xbin,                dtype='float')
-    dset    = grp2.create_dataset('xbin_cum',       data = xbin_cum,            dtype='float')
-    dset    = grp2.create_dataset('Nproj_stars',    data = Nproj_stars,         dtype='float')
-    dset    = grp2.create_dataset('Mproj_a0_stars', data = Mproj_a0_stars,      dtype='float')
-    dset    = grp2.create_dataset('Mproj_a2_stars', data = Mproj_a2_stars,      dtype='float')
-    dset    = grp2.create_dataset('Mproj_b2_stars', data = Mproj_b2_stars,      dtype='float')
-    
-    dset    = grp2.create_dataset('Mproj_A2prof_stars',   data = Mproj_b2_stars, dtype='float')
-    dset    = grp2.create_dataset('Mproj_Phi2prof_stars', data = Mproj_b2_stars, dtype='float')
+    dset    = grp2.create_dataset('xbin',           data = xbin,                   dtype='float')
+    dset    = grp2.create_dataset('xbin_linear',    data = xbin_linear,            dtype='float')
+
+    dset    = grp2.create_dataset('nB_stars',           data = nB_stars,           dtype='float')
+    dset    = grp2.create_dataset('R0_prof_stars',      data = R0_prof_stars,      dtype='float')
+    dset    = grp2.create_dataset('Rm_prof_stars',      data = Rm_prof_stars,      dtype='float')
+    dset    = grp2.create_dataset('R1_prof_stars',      data = R1_prof_stars,      dtype='float')
+    dset    = grp2.create_dataset('A2_prof_stars',      data = A2_prof_stars,      dtype='float')
+    dset    = grp2.create_dataset('A2err_prof_stars',   data = A2err_prof_stars,   dtype='float')
+    dset    = grp2.create_dataset('Phi2_prof_stars',    data = Phi2_prof_stars,    dtype='float')
+    dset    = grp2.create_dataset('Phi2err_prof_stars', data = Phi2err_prof_stars, dtype='float')
     
     output.close()
 
