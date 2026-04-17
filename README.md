@@ -1,0 +1,1 @@
+Scripts to run the analysis on barred galaxies presented in Frosst et al. 2026.
