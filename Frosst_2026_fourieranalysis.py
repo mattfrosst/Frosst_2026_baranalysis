@@ -227,7 +227,7 @@ class FourierMethodFast:
                 var.mean(1), var.std_of_mean(1),
                 var.corr(0, 1))
 
-def findBarRegion(R0, R1, A2_prof, Phi2_prof,
+def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
                   minA2Bar=0.2, maxDPhi2=10.0, minDexBar=0.2, minNumBar=100000):
     """
     Identify the bar region from binData alone.
@@ -270,7 +270,7 @@ def findBarRegion(R0, R1, A2_prof, Phi2_prof,
     # use binData radii to determine indicies containing the bar
     R0_bar   = R0[b0]   # inner edge of first bar bin
     R1_bar   = R1[b1]   # outer edge of last bar bin
-    nBar = binData[b0:b1+1, 0].sum()   # total particle count across bar bins
+    nBar     = nB[b0:b1+1].sum()   # total particle count across bar bins
 
     if nBar < minNumBar or np.log10(R1_bar / R0_bar) < 2 * minDexBar:
         return 0, 0
