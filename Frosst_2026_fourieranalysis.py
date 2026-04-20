@@ -247,14 +247,14 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
     Phi2_norm   = np.where(Phi2_norm >  0.5*np.pi, Phi2_norm - np.pi,
                      np.where(Phi2_norm < -0.5*np.pi, Phi2_norm + np.pi, Phi2_norm))
 
-    nB    = len(A2_prof)
+    N     = len(nB)
     b1    = b0
     Phi2_normmin, Phi2_normmax = Phi2_norm[b0], Phi2_norm[b1]
     width = lambda ps: max(ps, Phi2_normmax) - min(ps, Phi2_normmin)
     maxDPhi2_norm_rad = maxDPhi2 * np.pi / 180.0
 
     w0 = width(Phi2_norm[b0-1]) if b0 > 0   and A2_prof[b0-1] > minA2 else 2
-    w1 = width(Phi2_norm[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
+    w1 = width(Phi2_norm[b1+1]) if b1+1 < N and A2_prof[b1+1] > minA2 else 2
     while min(w0, w1) < maxDPhi2_norm_rad:
         if w0 < w1:
             b0 -= 1
@@ -265,7 +265,7 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
             b1 += 1
             Phi2_normmin = min(Phi2_norm[b1], Phi2_normmin)
             Phi2_normmax = max(Phi2_norm[b1], Phi2_normmax)
-            w1 = width(Phi2_norm[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
+            w1 = width(Phi2_norm[b1+1]) if b1+1 < N and A2_prof[b1+1] > minA2 else 2
 
     # use binData radii to determine indicies containing the bar
     R0_bar   = R0[b0]   # inner edge of first bar bin
@@ -277,22 +277,23 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
 
     return b0, b1
 
-if __name__ == "__main__":
-    # --- Define shared grid once, outside any loop ---
-    bin_edges = np.logspace(np.log10(0.5), np.log10(15.0), num=51)  # kpc
-
-    # --- Pass 1: store binData for all galaxies (cheap to resume/checkpoint) ---
-    all_binData = {}
-    for ihalo in halo_ids:
-        tool = FourierMethodFast(m, x, y, vx, vy)
-        masks, binData = tool.analyseBins(bin_edges)
-        all_binData[ihalo] = binData          # save to disk here if needed
-        # tool and masks go out of scope — no large arrays kept in memory
-
-    # --- Pass 2: bar-finding and pattern speed (uses only stored binData) ---
-    for ihalo in halo_ids:
-        tool   = FourierMethodFast(m, x, y, vx, vy)   # reconstruct (or cache)
-        masks, _ = tool.analyseBins(bin_edges)          # masks needed for measureOmega
-        bar_mask, bar_bins = tool.findBarRegion(masks, all_binData[ihalo])
-        if bar_mask is not None:
-            result = tool.measureOmega(bar_mask)
+#if __name__ == "__main__":
+#    # --- Define shared grid once, outside any loop ---
+#    bin_edges = np.logspace(np.log10(0.5), np.log10(15.0), num=51)  # kpc
+#
+#    # --- Pass 1: store binData for all galaxies (cheap to resume/checkpoint) ---
+#    all_binData = {}
+#    for ihalo in halo_ids:
+#        tool = FourierMethodFast(m, x, y, vx, vy)
+#        masks, binData = tool.analyseBins(bin_edges)
+#        all_binData[ihalo] = binData          # save to disk here if needed
+#        # tool and masks go out of scope — no large arrays kept in memory
+#
+#    # --- Pass 2: bar-finding and pattern speed (uses only stored binData) ---
+#    for ihalo in halo_ids:
+#        tool   = FourierMethodFast(m, x, y, vx, vy)   # reconstruct (or cache)
+#        masks, _ = tool.analyseBins(bin_edges)          # masks needed for measureOmega
+#        bar_mask, bar_bins = tool.findBarRegion(masks, all_binData[ihalo])
+#        if bar_mask is not None:
+#            result = tool.measureOmega(bar_mask)
+#
