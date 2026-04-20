@@ -48,29 +48,21 @@ for     idir,  Dir  in enumerate(BoxDir):
     print(nB, nB.shape)
     nGal = nB.shape[0]; nBin = nB.shape[1]
     print(nGal, nBin)
-    stop
 
-    binData = np.zeros((nGal, nBin, 7))
-
-    binData[:, :, 0] = nB;
-    binData[:, :, 1] = profiles['R0_prof_stars']
-    binData[:, :, 2] = profiles['Rm_prof_stars']
-    binData[:, :, 3] = profiles['R1_prof_stars']
-    binData[:, :, 4] = profiles['A2_prof_stars']
-    binData[:, :, 5] = profiles['A2err_prof_stars']
-    binData[:, :, 6] = profiles['Phi2_prof_stars']
-    binData[:, :, 7] = profiles['Phi2err_prof_stars']
+    # --- Read required profiles
+    R0_prof   = profiles['R0_prof_stars']
+    R1_prof   = profiles['R1_prof_stars']
+    A2_prof   = profiles['A2_prof_stars']
+    Phi2_prof = profiles['Phi2_prof_stars']
 
     # ---------------------------
     #    Find the bar region
     # ---------------------------
+    for i in range(nGal):
+        b0, b1    = bar_tool.findBarRegion(R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i],
+                                           minA2Bar=0.2, maxDPsi=15.0, minDexBar=0.15, minNumBar=200)
+        print("Inner and outer index: ", b0, b1)
+        print("Inner and outer Rbar: ", R0_prof[b0], R1_prof[b1])
 
-    #bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
-    #binData   = bar_tool.analyseBins(xbin_linear)
-
-    #Need to reconstruct binData... Annoying - find out what we actually need here and pass indiv arrays.
-    b0, b1    = bar_tool.findBarRegion(binData, minA2Bar=0.2, maxDPsi=15.0, minDexBar=0.15, minNumBar=200)
-
-plt.show()    
 sys.exit() ###################################################################
 
