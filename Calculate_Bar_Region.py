@@ -61,7 +61,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     for i in range(nGal):
         print('profiles for gal i:', R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i])
         b0, b1    = findBarRegion(R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i],
-                                  minA2Bar=0.2, maxDPsi=15.0, minDexBar=0.15, minNumBar=200)
+                                  minA2Bar=0.2, maxDPhi2=15.0, minDexBar=0.15, minNumBar=200)
         print("Inner and outer index: ", b0, b1)
         print("Inner and outer Rbar: ", R0_prof[b0], R1_prof[b1])
 

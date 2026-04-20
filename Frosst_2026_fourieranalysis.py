@@ -227,8 +227,8 @@ class FourierMethodFast:
                 var.mean(1), var.std_of_mean(1),
                 var.corr(0, 1))
 
-def findBarRegion(R0, R1, A2_prof, psi_prof,
-                  minA2Bar=0.2, maxDPsi=10.0, minDexBar=0.2, minNumBar=100000):
+def findBarRegion(R0, R1, A2_prof, Phi2_prof,
+                  minA2Bar=0.2, maxDPhi2=10.0, minDexBar=0.2, minNumBar=100000):
     """
     Identify the bar region from binData alone.
 
@@ -242,30 +242,30 @@ def findBarRegion(R0, R1, A2_prof, psi_prof,
     if A2_prof[b0] < minA2Bar:
         return 0, 0
 
-    minA2 = max(minA2Bar, 0.5 * A2_prof[b0])
-    psi   = psi_prof - psi_prof[b0]
-    psi   = np.where(psi >  0.5*np.pi, psi - np.pi,
-                     np.where(psi < -0.5*np.pi, psi + np.pi, psi))
+    minA2       = max(minA2Bar, 0.5 * A2_prof[b0])
+    Phi2_norm   = Phi2_prof - Phi2_prof[b0]
+    Phi2_norm   = np.where(Phi2_norm >  0.5*np.pi, Phi2_norm - np.pi,
+                     np.where(Phi2_norm < -0.5*np.pi, Phi2_norm + np.pi, Phi2_norm))
 
-    nB    = len(binData)
+    nB    = len(A2_prof)
     b1    = b0
-    psimin, psimax = psi[b0], psi[b1]
-    width = lambda ps: max(ps, psimax) - min(ps, psimin)
-    maxDPsi_rad = maxDPsi * np.pi / 180.0
+    Phi2_normmin, Phi2_normmax = Phi2_norm[b0], Phi2_norm[b1]
+    width = lambda ps: max(ps, Phi2_normmax) - min(ps, Phi2_normmin)
+    maxDPhi2_norm_rad = maxDPhi2 * np.pi / 180.0
 
-    w0 = width(psi[b0-1]) if b0 > 0   and A2_prof[b0-1] > minA2 else 2
-    w1 = width(psi[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
-    while min(w0, w1) < maxDPsi_rad:
+    w0 = width(Phi2_norm[b0-1]) if b0 > 0   and A2_prof[b0-1] > minA2 else 2
+    w1 = width(Phi2_norm[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
+    while min(w0, w1) < maxDPhi2_norm_rad:
         if w0 < w1:
             b0 -= 1
-            psimin = min(psi[b0], psimin)
-            psimax = max(psi[b0], psimax)
-            w0 = width(psi[b0-1]) if b0 > 0   and A2_prof[b0-1] > minA2 else 2
+            Phi2_normmin = min(Phi2_norm[b0], Phi2_normmin)
+            Phi2_normmax = max(Phi2_norm[b0], Phi2_normmax)
+            w0 = width(Phi2_norm[b0-1]) if b0 > 0   and A2_prof[b0-1] > minA2 else 2
         else:
             b1 += 1
-            psimin = min(psi[b1], psimin)
-            psimax = max(psi[b1], psimax)
-            w1 = width(psi[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
+            Phi2_normmin = min(Phi2_norm[b1], Phi2_normmin)
+            Phi2_normmax = max(Phi2_norm[b1], Phi2_normmax)
+            w1 = width(Phi2_norm[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
 
     # use binData radii to determine indicies containing the bar
     R0_bar   = R0[b0]   # inner edge of first bar bin
