@@ -187,56 +187,6 @@ class FourierMethodFast:
                              AP2.mean(1), AP2.std_of_mean(1))
         return binData
 
-    def findBarRegion(self, R0, R1, A2_prof, psi_prof,
-                      minA2Bar=0.2, maxDPsi=10.0, minDexBar=0.2, minNumBar=100000):
-        """
-        Identify the bar region from binData alone.
-
-        Returns: (b0, b1) bin indices into binData, or (None, None) if no bar found.
-        R0 and R1 of the bar region can be recovered as:
-          R0  = binData[b0, 1] = R0_bar
-          R1  = binData[b1, 3] = R1_bar
-        """
-
-        b0  = np.argmax(A2[np.where(R1 < 5)])
-        if A2[b0] < minA2Bar:
-            return 0, 0
-
-        minA2 = max(minA2Bar, 0.5 * A2[b0])
-        psi   = psi_prof - psi_prof[b0]
-        psi   = np.where(psi >  0.5*np.pi, psi - np.pi,
-                np.where(psi < -0.5*np.pi, psi + np.pi, psi))
-
-        nB    = len(binData)
-        b1    = b0
-        psimin, psimax = psi[b0], psi[b1]
-        width = lambda ps: max(ps, psimax) - min(ps, psimin)
-        maxDPsi_rad = maxDPsi * np.pi / 180.0
-
-        w0 = width(psi[b0-1]) if b0 > 0   and A2[b0-1] > minA2 else 2
-        w1 = width(psi[b1+1]) if b1+1 < nB and A2[b1+1] > minA2 else 2
-        while min(w0, w1) < maxDPsi_rad:
-            if w0 < w1:
-                b0 -= 1
-                psimin = min(psi[b0], psimin)
-                psimax = max(psi[b0], psimax)
-                w0 = width(psi[b0-1]) if b0 > 0   and A2[b0-1] > minA2 else 2
-            else:
-                b1 += 1
-                psimin = min(psi[b1], psimin)
-                psimax = max(psi[b1], psimax)
-                w1 = width(psi[b1+1]) if b1+1 < nB and A2[b1+1] > minA2 else 2
-
-        # use binData radii to determine indicies containing the bar
-        R0_bar   = R0[b0]   # inner edge of first bar bin
-        R1_bar   = R1[b1]   # outer edge of last bar bin
-        nBar = binData[b0:b1+1, 0].sum()   # total particle count across bar bins
-        
-        if nBar < minNumBar or np.log10(R1_bar / R0_bar) < 2 * minDexBar:
-            return 0, 0
-
-        return b0, b1
-
     def measureOmega(self, bar_mask, tophat=False):
         """
         Same as FourierMethod.measureOmega() but takes a boolean mask
@@ -277,6 +227,55 @@ class FourierMethodFast:
                 var.mean(1), var.std_of_mean(1),
                 var.corr(0, 1))
 
+def findBarRegion(R0, R1, A2_prof, psi_prof,
+                  minA2Bar=0.2, maxDPsi=10.0, minDexBar=0.2, minNumBar=100000):
+    """
+    Identify the bar region from binData alone.
+
+    Returns: (b0, b1) bin indices into binData, or (None, None) if no bar found.
+    R0 and R1 of the bar region can be recovered as:
+      R0  = binData[b0, 1] = R0_bar
+      R1  = binData[b1, 3] = R1_bar
+    """
+
+    b0  = np.argmax(A2[np.where(R1 < 5)])
+    if A2[b0] < minA2Bar:
+        return 0, 0
+
+    minA2 = max(minA2Bar, 0.5 * A2[b0])
+    psi   = psi_prof - psi_prof[b0]
+    psi   = np.where(psi >  0.5*np.pi, psi - np.pi,
+                     np.where(psi < -0.5*np.pi, psi + np.pi, psi))
+
+    nB    = len(binData)
+    b1    = b0
+    psimin, psimax = psi[b0], psi[b1]
+    width = lambda ps: max(ps, psimax) - min(ps, psimin)
+    maxDPsi_rad = maxDPsi * np.pi / 180.0
+
+    w0 = width(psi[b0-1]) if b0 > 0   and A2[b0-1] > minA2 else 2
+    w1 = width(psi[b1+1]) if b1+1 < nB and A2[b1+1] > minA2 else 2
+    while min(w0, w1) < maxDPsi_rad:
+        if w0 < w1:
+            b0 -= 1
+            psimin = min(psi[b0], psimin)
+            psimax = max(psi[b0], psimax)
+            w0 = width(psi[b0-1]) if b0 > 0   and A2[b0-1] > minA2 else 2
+        else:
+            b1 += 1
+            psimin = min(psi[b1], psimin)
+            psimax = max(psi[b1], psimax)
+            w1 = width(psi[b1+1]) if b1+1 < nB and A2[b1+1] > minA2 else 2
+
+    # use binData radii to determine indicies containing the bar
+    R0_bar   = R0[b0]   # inner edge of first bar bin
+    R1_bar   = R1[b1]   # outer edge of last bar bin
+    nBar = binData[b0:b1+1, 0].sum()   # total particle count across bar bins
+
+    if nBar < minNumBar or np.log10(R1_bar / R0_bar) < 2 * minDexBar:
+        return 0, 0
+
+    return b0, b1
 
 if __name__ == "__main__":
     # --- Define shared grid once, outside any loop ---
