@@ -187,24 +187,23 @@ class FourierMethodFast:
                              AP2.mean(1), AP2.std_of_mean(1))
         return binData
 
-    def findBarRegion(self, binData, minA2Bar=0.2, maxDPsi=10.0,
-                      minDexBar=0.2, minNumBar=100000):
+    def findBarRegion(self, R0, R1, A2_prof, psi_prof,
+                      minA2Bar=0.2, maxDPsi=10.0, minDexBar=0.2, minNumBar=100000):
         """
         Identify the bar region from binData alone.
 
         Returns: (b0, b1) bin indices into binData, or (None, None) if no bar found.
         R0 and R1 of the bar region can be recovered as:
-          R0 = binData[b0, 1]
-          R1 = binData[b1, 3]
+          R0  = binData[b0, 1] = R0_bar
+          R1  = binData[b1, 3] = R1_bar
         """
 
-        A2  = binData[:, 5]
-        b0  = np.argmax(A2[np.where(binData[:, 3] < 5)])
+        b0  = np.argmax(A2[np.where(R1 < 5)])
         if A2[b0] < minA2Bar:
             return 0, 0
 
         minA2 = max(minA2Bar, 0.5 * A2[b0])
-        psi   = binData[:, 7] - binData[b0, 7]
+        psi   = psi_prof - psi_prof[b0]
         psi   = np.where(psi >  0.5*np.pi, psi - np.pi,
                 np.where(psi < -0.5*np.pi, psi + np.pi, psi))
 
@@ -229,11 +228,11 @@ class FourierMethodFast:
                 w1 = width(psi[b1+1]) if b1+1 < nB and A2[b1+1] > minA2 else 2
 
         # use binData radii to determine indicies containing the bar
-        R0   = binData[b0, 1]   # inner edge of first bar bin
-        R1   = binData[b1, 3]   # outer edge of last bar bin
+        R0_bar   = R0[b0]   # inner edge of first bar bin
+        R1_bar   = R1[b1]   # outer edge of last bar bin
         nBar = binData[b0:b1+1, 0].sum()   # total particle count across bar bins
         
-        if nBar < minNumBar or np.log10(R1 / R0) < 2 * minDexBar:
+        if nBar < minNumBar or np.log10(R1_bar / R0_bar) < 2 * minDexBar:
             return 0, 0
 
         return b0, b1
