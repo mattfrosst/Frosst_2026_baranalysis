@@ -59,12 +59,16 @@ for     idir,  Dir  in enumerate(BoxDir):
     #    Find the bar region
     # ---------------------------
     for i in range(nGal):
-        print('nB for profs of gal :', i,  nB[i])
-        print('profiles for gal:', i, R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i])
+        print(A2_prof[i])
+        stop
         b0, b1    = findBarRegion(nB[i], R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i],
                                   minA2Bar=0.2, maxDPhi2=15.0, minDexBar=0.15, minNumBar=200)
         print("Inner and outer index: ", b0, b1)
-        print("Inner and outer Rbar: ", R0_prof[b0], R1_prof[b1])
+        print("Inner and outer Rbar: ", R0_prof[i,b0], R1_prof[i,b1])
 
+        plt.plot(R1_prof[i], A2_prof[i])
+        plt.axvline(R0_prof[i,b0], c='r'); plt.axvline(R1_prof[i,b1], c='r')
+        plt.show()
+        
 sys.exit() ###################################################################
 
