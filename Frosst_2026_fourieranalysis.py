@@ -238,11 +238,11 @@ def findBarRegion(R0, R1, A2_prof, psi_prof,
       R1  = binData[b1, 3] = R1_bar
     """
 
-    b0  = np.argmax(A2[np.where(R1 < 5)])
-    if A2[b0] < minA2Bar:
+    b0  = np.argmax(A2_prof[np.where(R1 < 5)])
+    if A2_prof[b0] < minA2Bar:
         return 0, 0
 
-    minA2 = max(minA2Bar, 0.5 * A2[b0])
+    minA2 = max(minA2Bar, 0.5 * A2_prof[b0])
     psi   = psi_prof - psi_prof[b0]
     psi   = np.where(psi >  0.5*np.pi, psi - np.pi,
                      np.where(psi < -0.5*np.pi, psi + np.pi, psi))
@@ -253,19 +253,19 @@ def findBarRegion(R0, R1, A2_prof, psi_prof,
     width = lambda ps: max(ps, psimax) - min(ps, psimin)
     maxDPsi_rad = maxDPsi * np.pi / 180.0
 
-    w0 = width(psi[b0-1]) if b0 > 0   and A2[b0-1] > minA2 else 2
-    w1 = width(psi[b1+1]) if b1+1 < nB and A2[b1+1] > minA2 else 2
+    w0 = width(psi[b0-1]) if b0 > 0   and A2_prof[b0-1] > minA2 else 2
+    w1 = width(psi[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
     while min(w0, w1) < maxDPsi_rad:
         if w0 < w1:
             b0 -= 1
             psimin = min(psi[b0], psimin)
             psimax = max(psi[b0], psimax)
-            w0 = width(psi[b0-1]) if b0 > 0   and A2[b0-1] > minA2 else 2
+            w0 = width(psi[b0-1]) if b0 > 0   and A2_prof[b0-1] > minA2 else 2
         else:
             b1 += 1
             psimin = min(psi[b1], psimin)
             psimax = max(psi[b1], psimax)
-            w1 = width(psi[b1+1]) if b1+1 < nB and A2[b1+1] > minA2 else 2
+            w1 = width(psi[b1+1]) if b1+1 < nB and A2_prof[b1+1] > minA2 else 2
 
     # use binData radii to determine indicies containing the bar
     R0_bar   = R0[b0]   # inner edge of first bar bin
