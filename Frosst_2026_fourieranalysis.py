@@ -187,12 +187,11 @@ class FourierMethodFast:
                              AP2.mean(1), AP2.std_of_mean(1))
         return binData
 
-    def measureOmega(self, bar_mask, tophat=False):
+    def measureOmega(self, b0, b1, tophat=False):
         """
-        Same as FourierMethod.measureOmega() but takes a boolean mask
-        instead of index pair (i0, i1).
+        Takes an index pair (b0, b1) defining the bar region.
+        Returns the bar pattern speed and associated error,
         """
-        nP  = len(self.Rq)
         nB  = int(bar_mask.sum())
         if nB < 100:
             return 0., 0., 0., 0., 0., 0., 0., 0.
@@ -233,9 +232,9 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
     Identify the bar region from binData alone.
 
     Returns: (b0, b1) bin indices into binData, or (None, None) if no bar found.
-    R0 and R1 of the bar region can be recovered as:
-      R0  = binData[b0, 1] = R0_bar
-      R1  = binData[b1, 3] = R1_bar
+             R0 and R1 of the bar region can be recovered as:
+                 R0  = binData[b0, 1] = R0_bar
+                 R1  = binData[b1, 3] = R1_bar
     """
 
     b0  = np.argmax(A2_prof[np.where(R1 < 5)])
