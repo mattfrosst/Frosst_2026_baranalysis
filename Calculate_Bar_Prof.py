@@ -198,7 +198,7 @@ for     idir,  Dir  in enumerate(BoxDir):
             
                 pos_tree   = pos_stars[lstar_tree,:].value - halo_centre[ihalo,:].value
                 vel_tree   = vel_stars[lstar_tree,:].value - velCOM_stars[ihalo,:].value
-                
+
                 # --- align galaxy with z-component of AM within 50kpc
                 trans = rotation_matrix_from_vectors(angJ_stars[ihalo,:], [0,0,1])   # Transformation Matrix
                 pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
@@ -206,7 +206,6 @@ for     idir,  Dir  in enumerate(BoxDir):
 
                 bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
                 binData   = bar_tool.analyseBins(xbin_linear)
-                #b0, b1    = bar_tool.findBarRegion(binData, minA2Bar=0.2, maxDPsi=15.0, minDexBar=0.15, minNumBar=200)
                 
                 nB_stars[ihalo, :]           = binData[:,0]
                 R0_prof_stars[ihalo, :]      = binData[:,1]
