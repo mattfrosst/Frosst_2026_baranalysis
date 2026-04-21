@@ -26,11 +26,8 @@ BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6
 #BoxDir       = ["L0100N1504/"]                       ; RunDir   = "Thermal_non_equilibrium/" ; snap = 127
 
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
-fname        = "Stars_Mproj_Bar_Prof_"
-
-# ---- analysis Information ----
-Nstar_min    = 5e3  # Minimum number of stellar particles
-Nstar_max    = 1e10 # Maximum number of stellar particles
+rname        = "Stars_Mproj_Bar_Prof_"
+wname        = "Stars_Mproj_Bar_Region_"
 
 for     idir,  Dir  in enumerate(BoxDir):
 
@@ -38,37 +35,67 @@ for     idir,  Dir  in enumerate(BoxDir):
     ext3         = str(snap).zfill(3)
 
     # --- Read pre-calculated profiles from hdf5
-    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"
-    print('\n Writing to:',fn)
+    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
+    print('\n Reading:',fn)
     data  = h5.File(fn, "r")
-    profiles = data["Profiles"]
+    Header   = data["Header"];
+    HaloData = data["HaloData"];
+    Profiles = data["Profiles"];
+
+    # --- File information
+    TrackId  = HaloData["TrackId"];
+    Redshift = Header["Redshift"];
 
     # Determine size of profile arrays
-    nB = profiles['nB_stars']
-    print(nB, nB.shape)
+    nB = Profiles['nB_stars']
     nGal = nB.shape[0]; nBin = nB.shape[1]
-    print(nGal, nBin)
 
     # --- Read required profiles
-    R0_prof   = profiles['R0_prof_stars']
-    R1_prof   = profiles['R1_prof_stars']
-    A2_prof   = profiles['A2_prof_stars']
-    Phi2_prof = profiles['Phi2_prof_stars']
+    R0_prof   = Profiles["R0_prof_stars"]
+    R1_prof   = Profiles["R1_prof_stars"]
+    A2_prof   = Profiles["A2_prof_stars"]
+    Phi2_prof = Profiles["Phi2_prof_stars"]
+
+    # --- Write bar region data
+    b0_galaxies = np.zeros((nGal)); b1_galaxies = np.zeros((nGal))
+    R0_galaxies = np.zeros((nGal)); R1_galaxies = np.zeros((nGal))
 
     # ---------------------------
     #    Find the bar region
     # ---------------------------
+    print("Analizing ", nGal, " galaxies with ", nBin, "bins...")
     for i in range(nGal):
-        print(A2_prof[i])
-        stop
         b0, b1    = findBarRegion(nB[i], R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i],
                                   minA2Bar=0.2, maxDPhi2=15.0, minDexBar=0.15, minNumBar=200)
         print("Inner and outer index: ", b0, b1)
         print("Inner and outer Rbar: ", R0_prof[i,b0], R1_prof[i,b1])
 
-        plt.plot(R1_prof[i], A2_prof[i])
-        plt.axvline(R0_prof[i,b0], c='r'); plt.axvline(R1_prof[i,b1], c='r')
-        plt.show()
-        
-sys.exit() ###################################################################
+        b0_galaxies[i] = b0;
+        b1_galaxies[i] = b1;
 
+        R0_galaxies[i] = R0_prof[i,b0];
+        R1_galaxies[i] = R1_prof[i,b1];
+
+    # -----------------------------------------------
+    #    Write the bar region properties to hdf5
+    # -----------------------------------------------
+
+    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+wname+ext3+".hdf5"
+    print('\n Writing to:',fn)
+
+    output  = h5.File(fn, "w") # Might want to just write this back to the original file? Risky.
+    grp0    = output.create_group("Header")
+    grp1    = output.create_group("HaloData")
+
+    dset    = grp0.create_dataset('Redshift',       data = Redshift,     dtype = 'float')
+
+    dset    = grp1.create_dataset('TrackId',        data = TrackId,      dtype = 'int')
+    dset    = grp1.create_dataset('R0_index',       data = b0_galaxies,  dtype = 'int')
+    dset    = grp1.create_dataset('R1_index',       data = b0_galaxies,  dtype = 'int')
+    dset    = grp1.create_dataset('R0_value',       data = R0_galaxies,  dtype = 'float')
+    dset    = grp1.create_dataset('R1_value',       data = R1_galaxies,  dtype = 'float')
+
+    output.close()
+
+plt.show()
+sys.exit() ###################################################################
