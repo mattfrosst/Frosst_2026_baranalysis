@@ -55,24 +55,6 @@ def amplPhase3(x, m=2):
 def amplPhase2(x, C0, m=2):
     f,J = amplPhase3((C0,x[0],x[1]), m=m)
     return f,J[1:,:]
-
-def phaseOmega(x, m=2):
-    """compute ψ and Ω=dψ/dt from <cosmφ> <sinmφ> and their time derivatives"""
-    f = np.empty((2))
-    J = np.empty((2,4))
-    im = 1/m
-    iQ = 1/(x[0]*x[0]+x[1]*x[1])         # 1/(C²+S²)
-    J[0,0] =-im*x[1]*iQ                  # ∂ψ/∂C =-S/(C²+S²)/m
-    J[0,1] = im*x[0]*iQ                  # ∂ψ/∂S = C/(C²+S²)/m
-    J[0,2] = 0
-    J[0,3] = 0
-    f[0]   = im*atan(x[1],x[0])          # ψ      = 1/m atan(S/C)
-    f[1]   = J[0,0]*x[2] + J[0,1]*x[3]   # Ω = dψ = (C dS - S dC)/(C²+S²)/m
-    J[1,0] =( im*x[3] - 2*x[0]*f[1])*iQ  # ∂Ω/∂C  = ( dS/m - 2 C Ω)/(C²+S²)
-    J[1,1] =(-im*x[2] - 2*x[1]*f[1])*iQ  # ∂Ω/∂S  = (-dC/m - 2 S Ω)/(C²+S²)
-    J[1,2] = J[0,0]                      # ∂Ω/∂dC = ∂ψ/∂C
-    J[1,3] = J[0,1]                      # ∂Ω/∂dS = ∂ψ/∂S
-    return f,J
         
 class FourierMethodFast:
     """
@@ -187,45 +169,6 @@ class FourierMethodFast:
                              AP2.mean(1), AP2.std_of_mean(1))
         return binData
 
-    def measureOmega(self, b0, b1, tophat=False):
-        """
-        Takes an index pair (b0, b1) defining the bar region.
-        Returns the bar pattern speed and associated error,
-        """
-        nB  = int(bar_mask.sum())
-        if nB < 100:
-            return 0., 0., 0., 0., 0., 0., 0., 0.
-
-        Rq_bar = self.Rq[bar_mask]
-        Rq0    = Rq_bar.min()
-        Rq1    = Rq_bar.max()
-        Rqm    = np.median(Rq_bar)
-
-        c2  =  self.mC2[bar_mask]
-        s2  =  self.mS2[bar_mask]
-        dc2 = -2 * self.dPh[bar_mask] * s2
-        ds2 =  2 * self.dPh[bar_mask] * c2
-
-        if not tophat:
-            Q   = Rq_bar - Rqm
-            fac = np.where(Q < 0, 1/(Rq0 - Rqm), 1/(Rq1 - Rqm))
-            Q  *= fac
-            W, dW = windowDeriv(Q)
-            dW   *= fac
-            dW   *= self.dRq[bar_mask]
-            c2   = W * c2
-            s2   = W * s2
-            dc2  = W * dc2 + dW * self.mC2[bar_mask]
-            ds2  = W * ds2 + dW * self.mS2[bar_mask]
-
-        var = variance([c2, s2, dc2, ds2])
-        var = var.propagate(phaseOmega)
-
-        return (np.sqrt(Rq0), np.sqrt(Rqm), np.sqrt(Rq1),
-                var.mean(0), var.std_of_mean(0),
-                var.mean(1), var.std_of_mean(1),
-                var.corr(0, 1))
-
 def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
                   minA2Bar=0.2, maxDPhi2=10.0, minDexBar=0.2, minNumBar=100000):
     """
@@ -275,24 +218,3 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
         return 0, 0
 
     return b0, b1
-
-#if __name__ == "__main__":
-#    # --- Define shared grid once, outside any loop ---
-#    bin_edges = np.logspace(np.log10(0.5), np.log10(15.0), num=51)  # kpc
-#
-#    # --- Pass 1: store binData for all galaxies (cheap to resume/checkpoint) ---
-#    all_binData = {}
-#    for ihalo in halo_ids:
-#        tool = FourierMethodFast(m, x, y, vx, vy)
-#        masks, binData = tool.analyseBins(bin_edges)
-#        all_binData[ihalo] = binData          # save to disk here if needed
-#        # tool and masks go out of scope — no large arrays kept in memory
-#
-#    # --- Pass 2: bar-finding and pattern speed (uses only stored binData) ---
-#    for ihalo in halo_ids:
-#        tool   = FourierMethodFast(m, x, y, vx, vy)   # reconstruct (or cache)
-#        masks, _ = tool.analyseBins(bin_edges)          # masks needed for measureOmega
-#        bar_mask, bar_bins = tool.findBarRegion(masks, all_binData[ihalo])
-#        if bar_mask is not None:
-#            result = tool.measureOmega(bar_mask)
-#
