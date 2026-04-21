@@ -1,6 +1,5 @@
 from   Frosst_2026_fourieranalysis  import *
 from   periodic_kdtree              import PeriodicCKDTree
-from   bar_profiles                 import *
 from   colibre_utility              import *
 import numpy                        as     np
 import scipy                        as     scipy
@@ -21,8 +20,8 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #Fiducial_test
 
 # --- Local test path ---
-BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
-BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
+#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 
 # --- COSMA paths ---
 BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
