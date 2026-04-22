@@ -20,12 +20,12 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #Fiducial_test
 
 # --- Local test path ---
-#BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
-#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
+BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 
 # --- COSMA paths ---
-BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
-BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
+#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L050_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L100_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L200_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
@@ -230,7 +230,7 @@ for     idir,  Dir  in enumerate(BoxDir):
         
     # --- Write to hdf5
     #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
-    fn = "/cosma8/data/do019/dc-fros1/colibre_outputs/"+RunDir+fname+ext3+".hdf5" #COSMA path
+    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+".hdf5" #COSMA path
     print('\n Writing to:',fn)
 
     output  = h5.File(fn, "w")
