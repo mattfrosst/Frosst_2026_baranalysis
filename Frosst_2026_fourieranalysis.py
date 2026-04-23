@@ -115,7 +115,8 @@ class FourierMethodFast:
         R        = np.sqrt(self.Rq)           # actual radius, computed once
         nP       = len(self.Rq)
         n_bins   = len(bin_edges) - 1
-        binData  = np.full((n_bins, 9), np.nan)
+        binData      = np.full((n_bins, 9), np.nan)
+        fourierData  = np.full((n_bins, 4), np.nan)
         
         for k in range(n_bins):
             lo, hi  = bin_edges[k], bin_edges[k+1]
@@ -128,45 +129,63 @@ class FourierMethodFast:
                 continue
             else:
                 print("N bin ", nB)
-            
+
             Rq_bin  = self.Rq[mask]
             Rq0     = lo * lo
             Rq1     = hi * hi
             Rqm     = 0.5 * (Rq0 + Rq1)
 
-            c0 = self.m   if self.m.ndim == 0 else self.m[mask]
-            c2 = self.mC2[mask]
-            s2 = self.mS2[mask]
-            iD = 1.0 / (Rq1 - Rq0)
+            c0_bin  = self.m   if self.m.ndim == 0 else self.m[mask]
+            iD      = 1.0 / (Rq1 - Rq0)
 
+            c2_bin  = self.mC2[mask]
+            s2_bin  = self.mS2[mask]
+            dc2_bin = -2 * self.dPh[mask] * s2_bin
+            ds2_bin =  2 * self.dPh[mask] * c2_bin
+            
             if not tophat:
                 iD = 2.0 * iD
                 q  = np.abs(Rq_bin - Rqm) * iD
-                W  = window(q)
-                c0 = W * c0
-                c2 = W * c2
-                s2 = W * s2
+                W, dW  = windowDeriv(q)
+                c0_bin = W * c0_bin
+                c2_bin = W * c2_bin
+                s2_bin = W * s2_bin
 
             fac = nP * iD / (2 * np.pi)
 
-            if isinstance(c0, np.ndarray):
-                CCS = variance([c0, c2, s2])
+            if isinstance(c0_bin, np.ndarray):
+                CCS = variance([c0_bin, c2_bin, s2_bin])
                 CCS.scale(fac)
                 Sd0 = CCS.mean(0)
                 AP2 = CCS.propagate(amplPhase3)
             else:
-                CS2 = variance([c2, s2])
+                CS2 = variance([c2_bin, s2_bin])
                 CS2.scale(fac)
-                Sd0 = float(c0) * fac
+                Sd0 = float(c0_bin) * fac
                 AP2 = CS2.propagate(amplPhase2, args=(Sd0,))
 
             R0  = lo
             Rm  = np.sqrt(Rqm)
             R1  = hi
 
+            # --- save binData
             binData[k, :] = (nB, R0, Rm, R1, Sd0,
                              AP2.mean(0), AP2.std_of_mean(0),
                              AP2.mean(1), AP2.std_of_mean(1))
+
+            # --- Now, get the summed fourierData
+            #if not tophat:
+            #    Q   = Rq_bar - Rqm
+            #    fac = np.where(Q < 0, 1/(Rq0 - Rqm), 1/(Rq1 - Rqm))
+            #    Q  *= fac
+            #    W, dW = windowDeriv(Q)
+            #    dW   *= fac
+            #    dW   *= self.dRq[bar_mask]
+            #    c2   = W * c2
+            #    s2   = W * s2
+            #    dc2  = W * dc2 + dW * self.mC2[bar_mask]
+            #    ds2  = W * ds2 + dW * self.mS2[bar_mask]
+            
         return binData
 
 def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
@@ -218,3 +237,49 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
         return 0, 0
 
     return b0, b1
+
+def measureOmega(bar_mask, tophat=False):
+    """
+        Bar_mask is an index pair (i0, i1) describing the bar bins
+        identified in findBarRegion.
+        Returns: R0, Rm, R1, ψ, ψe, Ω, Ωe, C
+        ------------------------------------
+            R0,Rm,R1 = inner, median, and outer radius of bar region
+            ψ,ψe     = bar phase and its statistical uncertainty
+            Ω,Ωe     = bar pattern speed and its statistical uncertainty
+            C        = statistical correlation between ψ and Ω
+        """
+    nP  = len(self.Rq)
+    nB  = int(bar_mask.sum())
+    if nB < 100:
+        return 0., 0., 0., 0., 0., 0., 0., 0.
+    
+    Rq_bar = self.Rq[bar_mask]
+    Rq0    = Rq_bar.min()
+    Rq1    = Rq_bar.max()
+    Rqm    = np.median(Rq_bar)
+
+    c2  =  self.mC2[bar_mask]
+    s2  =  self.mS2[bar_mask]
+    dc2 = -2 * self.dPh[bar_mask] * s2
+    ds2 =  2 * self.dPh[bar_mask] * c2
+
+    if not tophat:
+        Q   = Rq_bar - Rqm
+        fac = np.where(Q < 0, 1/(Rq0 - Rqm), 1/(Rq1 - Rqm))
+        Q  *= fac
+        W, dW = windowDeriv(Q)
+        dW   *= fac
+        dW   *= self.dRq[bar_mask]
+        c2   = W * c2
+        s2   = W * s2
+        dc2  = W * dc2 + dW * self.mC2[bar_mask]
+        ds2  = W * ds2 + dW * self.mS2[bar_mask]
+
+    var = variance([c2, s2, dc2, ds2])
+    var = var.propagate(phaseOmega)
+        
+    return (np.sqrt(Rq0), np.sqrt(Rqm), np.sqrt(Rq1),
+            var.mean(0), var.std_of_mean(0),
+            var.mean(1), var.std_of_mean(1),
+            var.corr(0, 1))

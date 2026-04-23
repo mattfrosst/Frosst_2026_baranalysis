@@ -139,7 +139,6 @@ for     idir,  Dir  in enumerate(BoxDir):
     # --- number of stars per bin (nB), the number of stars analyised, and the surf mass density
     nB_stars       = np.zeros((len(lhalo),Nprof));
     nstar_count    = np.zeros(len(lhalo),dtype=int);
-    Sd0_prof_stars = np.zeros((len(lhalo),Nprof));
 
     # --- mass weighted bin edges (left, right -> R0, R1) and middle (Rm)
     R0_prof_stars = np.zeros((len(lhalo),Nprof));
@@ -211,12 +210,18 @@ for     idir,  Dir  in enumerate(BoxDir):
 
                 bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
                 binData   = bar_tool.analyseBins(xbin_linear)
+
+                #plt.scatter(binData[:,2], binData[:,5])
+                #plt.show()
+                #
+                #plt.scatter(binData[:,2], binData[:,7])
+                #plt.show()
                 
                 nB_stars[ihalo, :]           = binData[:,0]
                 R0_prof_stars[ihalo, :]      = binData[:,1]
                 Rm_prof_stars[ihalo, :]      = binData[:,2]
                 R1_prof_stars[ihalo, :]      = binData[:,3]
-                Sd0_prof_stars[ihalo, :]     = binData[:,4]
+                # Skip surface mass density profile; binData[:,4]
                 A2_prof_stars[ihalo, :]      = binData[:,5]
                 A2err_prof_stars[ihalo, :]   = binData[:,6]
                 Phi2_prof_stars[ihalo, :]    = binData[:,7]
@@ -273,7 +278,6 @@ for     idir,  Dir  in enumerate(BoxDir):
     dset    = grp2.create_dataset('R0_prof_stars',      data = R0_prof_stars,      dtype='float')
     dset    = grp2.create_dataset('Rm_prof_stars',      data = Rm_prof_stars,      dtype='float')
     dset    = grp2.create_dataset('R1_prof_stars',      data = R1_prof_stars,      dtype='float')
-    dset    = grp2.create_dataset('Sd0_prof_stars',     data = Sd0_prof_stars,     dtype='float')
     dset    = grp2.create_dataset('A2_prof_stars',      data = A2_prof_stars,      dtype='float')
     dset    = grp2.create_dataset('A2err_prof_stars',   data = A2err_prof_stars,   dtype='float')
     dset    = grp2.create_dataset('Phi2_prof_stars',    data = Phi2_prof_stars,    dtype='float')
