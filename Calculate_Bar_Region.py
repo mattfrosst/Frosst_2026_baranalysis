@@ -57,24 +57,26 @@ for     idir,  Dir  in enumerate(BoxDir):
     Phi2_prof = Profiles["Phi2_prof_stars"]
 
     # --- Write bar region data
-    b0_galaxies = np.zeros((nGal)); b1_galaxies = np.zeros((nGal))
-    R0_galaxies = np.zeros((nGal)); R1_galaxies = np.zeros((nGal))
+    nBar_galaxies = np.zeros((nGal));
+    b0_galaxies   = np.zeros((nGal)); b1_galaxies = np.zeros((nGal))
+    R0_galaxies   = np.zeros((nGal)); R1_galaxies = np.zeros((nGal))
 
     # ---------------------------
     #    Find the bar region
     # ---------------------------
     print("Analizing ", nGal, " galaxies with ", nBin, "bins...")
     for i in range(nGal):
-        b0, b1    = findBarRegion(nB[i], R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i],
-                                  minA2Bar=0.2, maxDPhi2=15.0, minDexBar=0.15, minNumBar=200)
+        nBar, b0, b1, R0_bar, R1_bar = findBarRegion(nB[i], R0_prof[i], R1_prof[i], A2_prof[i], Phi2_prof[i],
+                                                     minA2Bar=0.2, maxDPhi2=15.0, minDexBar=0.15, minNumBar=200)
         print("Inner and outer index: ", b0, b1)
-        print("Inner and outer Rbar: ", R0_prof[i,b0], R1_prof[i,b1])
+        print("Inner and outer Rbar: ", R0_bar, R1_bar)
 
+        nbar_galaxies[i] = nBar;
         b0_galaxies[i] = b0;
         b1_galaxies[i] = b1;
 
-        R0_galaxies[i] = R0_prof[i,b0];
-        R1_galaxies[i] = R1_prof[i,b1];
+        R0_galaxies[i] = R0_bar;
+        R1_galaxies[i] = R1_bar;
 
     # -----------------------------------------------
     #    Write the bar region properties to hdf5
@@ -87,13 +89,14 @@ for     idir,  Dir  in enumerate(BoxDir):
     grp0    = output.create_group("Header")
     grp1    = output.create_group("HaloData")
 
-    dset    = grp0.create_dataset('Redshift',       data = Redshift,     dtype = 'float')
+    dset    = grp0.create_dataset('Redshift',       data = Redshift,       dtype = 'float')
 
-    dset    = grp1.create_dataset('TrackId',        data = TrackId,      dtype = 'int')
-    dset    = grp1.create_dataset('R0_index',       data = b0_galaxies,  dtype = 'int')
-    dset    = grp1.create_dataset('R1_index',       data = b0_galaxies,  dtype = 'int')
-    dset    = grp1.create_dataset('R0_value',       data = R0_galaxies,  dtype = 'float')
-    dset    = grp1.create_dataset('R1_value',       data = R1_galaxies,  dtype = 'float')
+    dset    = grp1.create_dataset('TrackId',        data = TrackId,        dtype = 'int')
+    dset    = grp1.create_dataset('nBar',           data = nBar_galaxies,  dtype = 'int')
+    dset    = grp1.create_dataset('R0_index',       data = b0_galaxies,    dtype = 'int')
+    dset    = grp1.create_dataset('R1_index',       data = b0_galaxies,    dtype = 'int')
+    dset    = grp1.create_dataset('R0_value',       data = R0_galaxies,    dtype = 'float')
+    dset    = grp1.create_dataset('R1_value',       data = R1_galaxies,    dtype = 'float')
 
     output.close()
 

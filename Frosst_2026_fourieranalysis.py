@@ -55,7 +55,25 @@ def amplPhase3(x, m=2):
 def amplPhase2(x, C0, m=2):
     f,J = amplPhase3((C0,x[0],x[1]), m=m)
     return f,J[1:,:]
-        
+
+def phaseOmega(x, m=2):
+    """compute ψ and Ω=dψ/dt from <cosmφ> <sinmφ> and their time derivatives"""
+    f = np.empty((2))
+    J = np.empty((2,4))
+    im = 1/m
+    iQ = 1/(x[0]*x[0]+x[1]*x[1])         # 1/(C²+S²)
+    J[0,0] =-im*x[1]*iQ                  # ∂ψ/∂C =-S/(C²+S²)/m
+    J[0,1] = im*x[0]*iQ                  # ∂ψ/∂S = C/(C²+S²)/m
+    J[0,2] = 0
+    J[0,3] = 0
+    f[0]   = im*atan(x[1],x[0])          # ψ      = 1/m atan(S/C)
+    f[1]   = J[0,0]*x[2] + J[0,1]*x[3]   # Ω = dψ = (C dS - S dC)/(C²+S²)/m
+    J[1,0] =( im*x[3] - 2*x[0]*f[1])*iQ  # ∂Ω/∂C  = ( dS/m - 2 C Ω)/(C²+S²)
+    J[1,1] =(-im*x[2] - 2*x[1]*f[1])*iQ  # ∂Ω/∂S  = (-dC/m - 2 S Ω)/(C²+S²)
+    J[1,2] = J[0,0]                      # ∂Ω/∂dC = ∂ψ/∂C
+    J[1,3] = J[0,1]                      # ∂Ω/∂dS = ∂ψ/∂S
+    return f,J
+
 class FourierMethodFast:
     """
     Stripped-down version of FourierMethod for large simulation suites.
@@ -102,22 +120,14 @@ class FourierMethodFast:
 
         Returns:
         --------
-        bins     : list of boolean arrays, one mask per bin
-        binData  : np.ndarray, shape (n_bins, 9)  — same columns as
-                   FourierMethod.analyseBins()
+        binData  : np.ndarray, shape (n_bins, 8)
         """
-        bin_edges = np.asarray(bin_edges, dtype=float)
-        if bin_edges.ndim != 1 or len(bin_edges) < 2:
-            raise Exception("bin_edges must be 1-D with at least 2 entries")
-        if np.any(np.diff(bin_edges) <= 0):
-            raise Exception("bin_edges must be strictly monotonically increasing")
-
         R        = np.sqrt(self.Rq)           # actual radius, computed once
         nP       = len(self.Rq)
         n_bins   = len(bin_edges) - 1
-        binData      = np.full((n_bins, 9), np.nan)
-        fourierData  = np.full((n_bins, 4), np.nan)
-        
+        binData      = np.full((n_bins, 8), np.nan)
+
+        # This is arguably over complicated.
         for k in range(n_bins):
             lo, hi  = bin_edges[k], bin_edges[k+1]
             mask    = (R >= lo) & (R < hi)
@@ -164,44 +174,96 @@ class FourierMethodFast:
                 Sd0 = float(c0_bin) * fac
                 AP2 = CS2.propagate(amplPhase2, args=(Sd0,))
 
-            R0  = lo
-            Rm  = np.sqrt(Rqm)
-            R1  = hi
-
             # --- save binData
-            binData[k, :] = (nB, R0, Rm, R1, Sd0,
+            binData[k, :] = (nB, lo, np.sqrt(Rqm), hi,
                              AP2.mean(0), AP2.std_of_mean(0),
                              AP2.mean(1), AP2.std_of_mean(1))
-
-            # --- Now, get the summed fourierData
-            #if not tophat:
-            #    Q   = Rq_bar - Rqm
-            #    fac = np.where(Q < 0, 1/(Rq0 - Rqm), 1/(Rq1 - Rqm))
-            #    Q  *= fac
-            #    W, dW = windowDeriv(Q)
-            #    dW   *= fac
-            #    dW   *= self.dRq[bar_mask]
-            #    c2   = W * c2
-            #    s2   = W * s2
-            #    dc2  = W * dc2 + dW * self.mC2[bar_mask]
-            #    ds2  = W * ds2 + dW * self.mS2[bar_mask]
-            
         return binData
+
+    def analyseOmega(self, bin_edges, R0_bar, R1_bar, tophat=True):
+        """
+        Compute SUMMED A2, ψ2, dψ2 and uncertainties within bar region.
+
+        Parameters:
+        -----------
+        bin_edges : 1-D array-like of float
+            Monotonically increasing bin-edge radii (same units as x, y).
+            Defines N-1 bins for N edges.
+        R0_bar and R1_bar : floats
+            Radii of the start and end of the bar region.
+        tophat : bool
+            Use top-hat weighting. Default: True (recommended, unbiased).
+
+        Returns: nB, R0, Rm, R1, ψ, ψe, Ω, Ωe, C
+        ------------------------------------
+            nB       = number of particles in bar region
+            R0,Rm,R1 = inner, median, and outer radius of bar region
+            ψ,ψe     = bar phase and its statistical uncertainty
+            Ω,Ωe     = bar pattern speed and its statistical uncertainty
+            C        = statistical correlation between ψ and Ω
+        """
+        bin_edges = np.asarray(bin_edges, dtype=float)
+        if bin_edges.ndim != 1 or len(bin_edges) < 2:
+            raise Exception("bin_edges must be 1-D with at least 2 entries")
+        if np.any(np.diff(bin_edges) <= 0):
+            raise Exception("bin_edges must be strictly monotonically increasing")
+        
+        R        = np.sqrt(self.Rq)           # actual radius, computed once
+        nP       = len(self.Rq)
+        n_bins   = len(bin_edges) - 1
+        bar_mask = (R >= R0_bar) & (R < R1_bar)
+        fourierData  = np.full((8), np.nan)
+
+        nB = int(bar_mask.sum())
+        if nB < 100:
+            return 0., 0., 0., 0., 0., 0., 0., 0.
+
+        Rq_bar = self.Rq[bar_mask]
+        Rq0    = Rq_bar.min()
+        Rq1    = Rq_bar.max()
+        Rqm    = np.median(Rq_bar)
+
+        c2  =  self.mC2[bar_mask]
+        s2  =  self.mS2[bar_mask]
+        dc2 = -2 * self.dPh[bar_mask] * s2
+        ds2 =  2 * self.dPh[bar_mask] * c2
+
+        if not tophat:
+            Q   = Rq_bar - Rqm
+            fac = np.where(Q < 0, 1/(Rq0 - Rqm), 1/(Rq1 - Rqm))
+            Q  *= fac
+            W, dW = windowDeriv(Q)
+            dW   *= fac
+            dW   *= self.dRq[bar_mask]
+            c2   = W * c2
+            s2   = W * s2
+            dc2  = W * dc2 + dW * self.mC2[bar_mask]
+            ds2  = W * ds2 + dW * self.mS2[bar_mask]
+
+        # analyse data
+        var = variance([c2, s2, dc2, ds2])
+        var = var.propagate(phaseOmega)
+
+        # --- return bar properties
+        return (nB, np.sqrt(Rq0), np.sqrt(Rqm), np.sqrt(Rq1),
+                var.mean(0), var.std_of_mean(0),
+                var.mean(1), var.std_of_mean(1),
+                var.corr(0, 1))
 
 def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
                   minA2Bar=0.2, maxDPhi2=10.0, minDexBar=0.2, minNumBar=100000):
     """
-    Identify the bar region from binData alone.
+    Identify the bar region from precomputed binData.
 
-    Returns: (b0, b1) bin indices into binData, or (None, None) if no bar found.
-             R0 and R1 of the bar region can be recovered as:
-                 R0  = binData[b0, 1] = R0_bar
-                 R1  = binData[b1, 3] = R1_bar
+    Returns (0, 0, 0, 0, 0) if bar not found, otherwise:
+        Nbar   : int           : number of particles in the bar region. 
+        b0, b1 : int           : bin indices into binData, or (0, 0) if no bar found.
+        R0_bar, R1_bar : float : Radii enclosing the bar region.
     """
 
     b0  = np.argmax(A2_prof[np.where(R1 < 5)])
     if A2_prof[b0] < minA2Bar:
-        return 0, 0
+        return 0, 0, 0, 0, 0
 
     minA2       = max(minA2Bar, 0.5 * A2_prof[b0])
     Phi2_norm   = Phi2_prof - Phi2_prof[b0]
@@ -229,57 +291,11 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
             w1 = width(Phi2_norm[b1+1]) if b1+1 < N and A2_prof[b1+1] > minA2 else 2
 
     # use binData radii to determine indicies containing the bar
-    R0_bar   = R0[b0]   # inner edge of first bar bin
-    R1_bar   = R1[b1]   # outer edge of last bar bin
+    R0_bar   = R0[b0]              # inner edge of first bar bin
+    R1_bar   = R1[b1]              # outer edge of last bar bin
     nBar     = nB[b0:b1+1].sum()   # total particle count across bar bins
 
     if nBar < minNumBar or np.log10(R1_bar / R0_bar) < 2 * minDexBar:
-        return 0, 0
+        return 0, 0, 0, 0, 0
 
-    return b0, b1
-
-def measureOmega(bar_mask, tophat=False):
-    """
-        Bar_mask is an index pair (i0, i1) describing the bar bins
-        identified in findBarRegion.
-        Returns: R0, Rm, R1, ψ, ψe, Ω, Ωe, C
-        ------------------------------------
-            R0,Rm,R1 = inner, median, and outer radius of bar region
-            ψ,ψe     = bar phase and its statistical uncertainty
-            Ω,Ωe     = bar pattern speed and its statistical uncertainty
-            C        = statistical correlation between ψ and Ω
-        """
-    nP  = len(self.Rq)
-    nB  = int(bar_mask.sum())
-    if nB < 100:
-        return 0., 0., 0., 0., 0., 0., 0., 0.
-    
-    Rq_bar = self.Rq[bar_mask]
-    Rq0    = Rq_bar.min()
-    Rq1    = Rq_bar.max()
-    Rqm    = np.median(Rq_bar)
-
-    c2  =  self.mC2[bar_mask]
-    s2  =  self.mS2[bar_mask]
-    dc2 = -2 * self.dPh[bar_mask] * s2
-    ds2 =  2 * self.dPh[bar_mask] * c2
-
-    if not tophat:
-        Q   = Rq_bar - Rqm
-        fac = np.where(Q < 0, 1/(Rq0 - Rqm), 1/(Rq1 - Rqm))
-        Q  *= fac
-        W, dW = windowDeriv(Q)
-        dW   *= fac
-        dW   *= self.dRq[bar_mask]
-        c2   = W * c2
-        s2   = W * s2
-        dc2  = W * dc2 + dW * self.mC2[bar_mask]
-        ds2  = W * ds2 + dW * self.mS2[bar_mask]
-
-    var = variance([c2, s2, dc2, ds2])
-    var = var.propagate(phaseOmega)
-        
-    return (np.sqrt(Rq0), np.sqrt(Rqm), np.sqrt(Rq1),
-            var.mean(0), var.std_of_mean(0),
-            var.mean(1), var.std_of_mean(1),
-            var.corr(0, 1))
+    return nBar, b0, b1, R0_bar, R1_bar    

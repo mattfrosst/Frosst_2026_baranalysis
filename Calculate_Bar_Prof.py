@@ -208,31 +208,42 @@ for     idir,  Dir  in enumerate(BoxDir):
                 pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
                 vel_tree = (trans @ vel_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
 
+                # bar properties measured here
                 bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
                 binData   = bar_tool.analyseBins(xbin_linear)
-
-                #plt.scatter(binData[:,2], binData[:,5])
-                #plt.show()
-                #
-                #plt.scatter(binData[:,2], binData[:,7])
-                #plt.show()
                 
-                nB_stars[ihalo, :]           = binData[:,0]
-                R0_prof_stars[ihalo, :]      = binData[:,1]
-                Rm_prof_stars[ihalo, :]      = binData[:,2]
-                R1_prof_stars[ihalo, :]      = binData[:,3]
-                # Skip surface mass density profile; binData[:,4]
-                A2_prof_stars[ihalo, :]      = binData[:,5]
-                A2err_prof_stars[ihalo, :]   = binData[:,6]
-                Phi2_prof_stars[ihalo, :]    = binData[:,7]
-                Phi2err_prof_stars[ihalo, :] = binData[:,8]
+                # bar region determined
+                nBar, b0, b1, R0_bar, R1_bar = findBarRegion(binData[:,0], binData[:,1], binData[:,3], binData[:,4], binData[:,5],
+                                                             minA2Bar=0.2, maxDPhi2=15.0, minDexBar=0.15, minNumBar=200)
+                print('barRegion', lh, nBar, b0, b1, R0_bar, R1_bar)
+                # fourier analysis on bar region
+                test = bar_tool.analyseOmega(xbin_linear, R0_bar, R1_bar, tophat=True)
+                print('analyseOmega', lh, test)
+                
+                plt.scatter(binData[:,2], binData[:,4])
+                plt.axvline(R0_bar, c='r'); plt.axvline(R1_bar, c='r');
+                plt.show()
+                
+                plt.scatter(binData[:,2], binData[:,6])
+                plt.axvline(R0_bar, c='r'); plt.axvline(R1_bar, c='r');
+                plt.show()
+                
+                #nB_stars[ihalo, :]           = binData[:,0]
+                #R0_prof_stars[ihalo, :]      = binData[:,1]
+                #Rm_prof_stars[ihalo, :]      = binData[:,2]
+                #R1_prof_stars[ihalo, :]      = binData[:,3]
+                #A2_prof_stars[ihalo, :]      = binData[:,4]
+                #A2err_prof_stars[ihalo, :]   = binData[:,5]
+                #Phi2_prof_stars[ihalo, :]    = binData[:,6]
+                #Phi2err_prof_stars[ihalo, :] = binData[:,7]
 
         fracs     = round(float(ihalo+1)/len(lhalo),4)
         if ihalo % 100  ==0:
             print(' Group:',lh,' | f:',fracs)
         elif ihalo   ==len(lhalo)-1:
             print(' Group:',lh,' | f:',fracs)
-        
+
+    stop
     # --- Write to hdf5
     #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
     fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+".hdf5" #COSMA path
