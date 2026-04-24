@@ -72,11 +72,10 @@ for     idir,  Dir  in enumerate(BoxDir):
         print("Inner and outer Rbar: ", R0_bar, R1_bar)
 
         nbar_galaxies[i] = nBar;
-        b0_galaxies[i] = b0;
-        b1_galaxies[i] = b1;
-
-        R0_galaxies[i] = R0_bar;
-        R1_galaxies[i] = R1_bar;
+        b0_galaxies[i]   = b0;
+        b1_galaxies[i]   = b1;
+        R0_galaxies[i]   = R0_bar;
+        R1_galaxies[i]   = R1_bar;
 
     # -----------------------------------------------
     #    Write the bar region properties to hdf5

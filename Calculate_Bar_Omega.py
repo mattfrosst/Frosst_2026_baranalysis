@@ -32,6 +32,7 @@ BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6
 
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
 fname        = "Stars_Mproj_Bar_Prof_"
+bname        = 
 
 # ---- analysis Information ----
 Nstar_min    = 5e3  # Minimum number of stellar particles
@@ -45,18 +46,28 @@ for     idir,  Dir  in enumerate(BoxDir):
     Swiftfile    = BasePath+Dir+RunDir+"snapshots/"+SnapBase+ext4+"/colibre_"+ext4+".hdf5"
 
     soap_file    = BasePath+Dir+RunDir+"SOAP-HBT/halo_properties_"+ext4+".hdf5"
-    #soap_file    = BasePath+Dir+RunDir+"SOAP/halo_properties_"+ext4+".hdf5"
         
     # --- Read SOAP halo data 
     print('SOAP file: ', soap_file)
     soap         = sw.load(soap_file)
 
-    # --- Read the selection data (Stellar and DM resolution)
-    #NDM_subhalo   = soap.bound_subhalo.number_of_dark_matter_particles
-    Nstar_subhalo = soap.bound_subhalo.number_of_star_particles
-            
-    # --- find all halos with Nstar_max >= Nstar >= Nstar_min (Using SOAP catalogs)
-    lhalo        = np.where((Nstar_subhalo >= Nstar_min) & (Nstar_subhalo <= Nstar_max))[0]
+    # --- Read the selection data, i.e., only galaxies with a bar identified.
+    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
+    print('\n Reading:',fn)
+    data  = h5.File(fn, "r")
+    Header   = data["Header"];
+    HaloData = data["HaloData"];
+
+    # --- File information
+    TrackId  = HaloData["TrackId"];
+    Redshift = Header["Redshift"];
+
+    # Determine size of profile arrays
+    nB = Profiles['nB_stars']
+    nGal = nB.shape[0]; nBin = nB.shape[1]
+
+    # --- Read required properties
+    R1bar_array = HaloData["R1_bar"]
 
     print('- snapshot        :',snap)
     print('  Number of galaxies selected: ',len(lhalo)) 
@@ -64,69 +75,23 @@ for     idir,  Dir  in enumerate(BoxDir):
     # --- Get some properties of the galaxies from SOAP
     # --- Bound subhalo: galaxy properties
     rhalf_stars       = soap.bound_subhalo.half_mass_radius_stars[lhalo]
-    rhalf_gas         = soap.bound_subhalo.half_mass_radius_gas[lhalo]
     nstar             = soap.bound_subhalo.number_of_star_particles[lhalo]
-    ngas              = soap.bound_subhalo.number_of_gas_particles[lhalo]
-    mean_stellar_age  = soap.bound_subhalo.mass_weighted_mean_stellar_age[lhalo]
-    kappa_co_allstars = soap.bound_subhalo.kappa_corot_stars[lhalo]
-
-    # --- Exclusive sphere 50kpc: galaxy properties
-    mstar             = soap.exclusive_sphere_50kpc.stellar_mass[lhalo]
-    mgas              = soap.exclusive_sphere_50kpc.gas_mass[lhalo]
-    mHI               = soap.exclusive_sphere_50kpc.atomic_hydrogen_mass[lhalo]
-    mH2               = soap.exclusive_sphere_50kpc.molecular_hydrogen_mass[lhalo]
-    DT                = soap.exclusive_sphere_50kpc.disc_to_total_stellar_mass_fraction[lhalo]
-    SFR               = soap.exclusive_sphere_50kpc.star_formation_rate[lhalo]
 
     # --- In spherical r200crit: halo properties
-    N200              = soap.spherical_overdensity_200_crit.number_of_dark_matter_particles[lhalo]
-    M200              = soap.spherical_overdensity_200_crit.total_mass[lhalo]
-    r200              = soap.spherical_overdensity_200_crit.soradius[lhalo]
-    angJ_DM           = soap.spherical_overdensity_200_crit.angular_momentum_dark_matter[lhalo]
     velCOM_stars      = soap.spherical_overdensity_500_crit.stellar_centre_of_mass_velocity[lhalo]
-    fsub              = soap.spherical_overdensity_200_crit.mass_fraction_satellites[lhalo]
 
     # -- Inclusive sphere 50kpc: angular momentum
     angJ_stars        = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo]
-    angJ_gas          = soap.inclusive_sphere_50kpc.angular_momentum_gas[lhalo]
-    angJ_baryons      = soap.inclusive_sphere_50kpc.angular_momentum_baryons[lhalo]
 
     # --- HBT halo properties
-    is_central        = soap.input_halos.is_central[lhalo]
     halo_centre       = soap.input_halos.halo_centre[lhalo]
     TrackId           = soap.input_halos_hbtplus.track_id[lhalo]
-    
-    # -- luminosities are in the following order: u, g, r, i, z, Y, J, H, K
-    Lstar_r           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,2]
-    Lstar_z           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,4]
-    Lstar_Y           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,5]
 
     # --- convert Units
     velCOM_stars.convert_to_units('km/s')          ; velCOM_stars.convert_to_physical()
     rhalf_stars.convert_to_units('kpc')            ; rhalf_stars.convert_to_physical()
-    r200.convert_to_units('kpc')                   ; r200.convert_to_physical()
     halo_centre.convert_to_units('kpc')            ; halo_centre.convert_to_physical()
-    rhalf_gas.convert_to_units('kpc')              ; rhalf_gas.convert_to_physical()
-    mstar.convert_to_units('Msun')                 ; mstar.convert_to_physical()
-    mgas.convert_to_units('Msun')                  ; mgas.convert_to_physical()
-    mHI.convert_to_units('Msun')                   ; mH2.convert_to_physical()
-    mean_stellar_age.convert_to_units('Gyr')       ; mean_stellar_age.convert_to_physical()
-    M200.convert_to_units('Msun')                  ; M200.convert_to_physical()    
     angJ_stars.convert_to_units('Msun*kpc*km/s')   ; angJ_stars.convert_to_physical()
-    angJ_gas.convert_to_units('Msun*kpc*km/s')     ; angJ_gas.convert_to_physical()
-    angJ_baryons.convert_to_units('Msun*kpc*km/s') ; angJ_baryons.convert_to_physical()
-    angJ_DM.convert_to_units('Msun*kpc*km/s')      ; angJ_DM.convert_to_physical()
-
-    # --- get the total angular momentum
-    angtot_stars   = np.linalg.norm(angJ_stars,  axis=1)
-    angtot_baryons = np.linalg.norm(angJ_baryons,axis=1)
-    angtot_gas     = np.linalg.norm(angJ_gas,    axis=1)
-    angtot_DM      = np.linalg.norm(angJ_DM,     axis=1)
-    
-    ang_spec_stars   = angtot_stars   / mstar
-    ang_spec_gas     = angtot_gas     / mgas
-    ang_spec_baryons = angtot_baryons / (mgas+mstar)
-    ang_spec_DM      = angtot_DM      / M200
 
     # --- define arrays for output; n.b. we will normalise the positions by the half mass radius
     Nprof          = 41
@@ -208,9 +173,12 @@ for     idir,  Dir  in enumerate(BoxDir):
                 pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
                 vel_tree = (trans @ vel_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
 
-                # bar properties measured here
+                # Setup FourierMethodFast class
                 bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
-                binData   = bar_tool.analyseBins(xbin_linear)
+
+                # fourier analysis on bar region
+                binOmega = bar_tool.analyseOmega(xbin_linear, R0_bar, R1_bar, tophat=True)
+                print('analyseOmega', lh, binOmega)
                 
                 nB_stars[ihalo, :]           = binData[:,0]
                 R0_prof_stars[ihalo, :]      = binData[:,1]
