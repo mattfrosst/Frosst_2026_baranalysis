@@ -205,8 +205,8 @@ for     idir,  Dir  in enumerate(BoxDir):
 
                 # --- align galaxy with z-component of AM within 50kpc
                 trans = rotation_matrix_from_vectors(angJ_stars[ihalo,:], [0,0,1])   # Transformation Matrix
-                pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
-                vel_tree = (trans @ vel_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
+                pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius units: rhalf
+                vel_tree = (trans @ vel_tree.T).T                                    # One BLAS call, units: km/s
 
                 # bar properties measured here
                 bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
@@ -227,10 +227,9 @@ for     idir,  Dir  in enumerate(BoxDir):
         elif ihalo   ==len(lhalo)-1:
             print(' Group:',lh,' | f:',fracs)
 
-    stop
     # --- Write to hdf5
-    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
-    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+".hdf5" #COSMA path
+    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
+    #fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+".hdf5" #COSMA path
     print('\n Writing to:',fn)
 
     output  = h5.File(fn, "w")

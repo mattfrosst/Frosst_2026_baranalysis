@@ -133,12 +133,11 @@ class FourierMethodFast:
             mask    = (R >= lo) & (R < hi)
             nB      = int(mask.sum())
 
-            print(lo, hi)
             if nB < 2:                        # nothing useful in this bin
                 print("Too few particles in bin ", k, ", found ", nB)
                 continue
-            else:
-                print("N bin ", nB)
+            #else:
+            #    print("N bin ", nB)
 
             Rq_bin  = self.Rq[mask]
             Rq0     = lo * lo
@@ -186,7 +185,7 @@ class FourierMethodFast:
 
         Parameters:
         -----------
-        bin_edges : 1-D array-like of float
+        bin_edges : 1-D array-like of floats
             Monotonically increasing bin-edge radii (same units as x, y).
             Defines N-1 bins for N edges.
         R0_bar and R1_bar : floats
@@ -216,7 +215,7 @@ class FourierMethodFast:
 
         nB = int(bar_mask.sum())
         if nB < 100:
-            return 0., 0., 0., 0., 0., 0., 0., 0.
+            return 0., 0., 0., 0., 0., 0., 0., 0., 0.
 
         Rq_bar = self.Rq[bar_mask]
         Rq0    = Rq_bar.min()
@@ -243,7 +242,7 @@ class FourierMethodFast:
         # analyse data
         var = variance([c2, s2, dc2, ds2])
         var = var.propagate(phaseOmega)
-
+        
         # --- return bar properties
         return (nB, np.sqrt(Rq0), np.sqrt(Rqm), np.sqrt(Rq1),
                 var.mean(0), var.std_of_mean(0),
@@ -255,15 +254,18 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
     """
     Identify the bar region from precomputed binData.
 
-    Returns (0, 0, 0, 0, 0) if bar not found, otherwise:
-        Nbar   : int           : number of particles in the bar region. 
-        b0, b1 : int           : bin indices into binData, or (0, 0) if no bar found.
-        R0_bar, R1_bar : float : Radii enclosing the bar region.
+    Returns (0, 0, 0, 0, 0, maxA2Bar, maxPhi2Bar, 0) if bar not found, otherwise:
+        Nbar                 : int   : number of particles in the bar region. 
+        b0, b1               : int   : bin indices into binData, or (0, 0) if no bar found.
+        R0_bar, R1_bar       : float : Radii enclosing the bar region.
+        maxA2Bar             : float : Bar strength in bar region, or within R1 < 5 if no bar found.
+        isbarred             : int   : 1 if true, 0 if false.
     """
 
     b0  = np.argmax(A2_prof[np.where(R1 < 5)])
+    maxA2Bar   = np.nanmax(A2_prof[np.where(R1 < 5)]);
     if A2_prof[b0] < minA2Bar:
-        return 0, 0, 0, 0, 0
+        return 0, 0, 0, 0, 0, maxA2Bar, 0
 
     minA2       = max(minA2Bar, 0.5 * A2_prof[b0])
     Phi2_norm   = Phi2_prof - Phi2_prof[b0]
@@ -296,6 +298,9 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
     nBar     = nB[b0:b1+1].sum()   # total particle count across bar bins
 
     if nBar < minNumBar or np.log10(R1_bar / R0_bar) < 2 * minDexBar:
-        return 0, 0, 0, 0, 0
-
-    return nBar, b0, b1, R0_bar, R1_bar    
+        # Bar region either not identified or not within bounds
+        return 0, 0, 0, 0, 0, maxA2Bar, 0
+    else:
+        # Bar region identified and within bounds
+        maxA2Bar   = np.nanmax(A2_prof[b0:b1]);
+        return nBar, b0, b1, R0_bar, R1_bar, maxA2Bar, 1

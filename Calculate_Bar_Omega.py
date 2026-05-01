@@ -32,7 +32,8 @@ BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6
 
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
 fname        = "Stars_Mproj_Bar_Prof_"
-bname        = 
+rname        = "Stars_Mproj_Bar_Region_"
+bname        = "Stars_Mproj_Bar_Omega_"
 
 # ---- analysis Information ----
 Nstar_min    = 5e3  # Minimum number of stellar particles
@@ -49,28 +50,14 @@ for     idir,  Dir  in enumerate(BoxDir):
         
     # --- Read SOAP halo data 
     print('SOAP file: ', soap_file)
-    soap         = sw.load(soap_file)
+    soap          = sw.load(soap_file)
 
-    # --- Read the selection data, i.e., only galaxies with a bar identified.
-    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
-    print('\n Reading:',fn)
-    data  = h5.File(fn, "r")
-    Header   = data["Header"];
-    HaloData = data["HaloData"];
+    # --- Read the selection data (Stellar and DM resolution)
+    #NDM_subhalo   = soap.bound_subhalo.number_of_dark_matter_particles
+    Nstar_subhalo = soap.bound_subhalo.number_of_star_particles
 
-    # --- File information
-    TrackId  = HaloData["TrackId"];
-    Redshift = Header["Redshift"];
-
-    # Determine size of profile arrays
-    nB = Profiles['nB_stars']
-    nGal = nB.shape[0]; nBin = nB.shape[1]
-
-    # --- Read required properties
-    R1bar_array = HaloData["R1_bar"]
-
-    print('- snapshot        :',snap)
-    print('  Number of galaxies selected: ',len(lhalo)) 
+    # --- find all halos with Nstar_max >= Nstar >= Nstar_min (Using SOAP catalogs)
+    lhalo         = np.where((Nstar_subhalo >= Nstar_min) & (Nstar_subhalo <= Nstar_max))[0]
     
     # --- Get some properties of the galaxies from SOAP
     # --- Bound subhalo: galaxy properties
@@ -93,6 +80,21 @@ for     idir,  Dir  in enumerate(BoxDir):
     halo_centre.convert_to_units('kpc')            ; halo_centre.convert_to_physical()
     angJ_stars.convert_to_units('Msun*kpc*km/s')   ; angJ_stars.convert_to_physical()
 
+    # --- Read the selection data, i.e., only galaxies with a bar identified.
+    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
+    print('\n Reading:',fn)
+    data     = h5.File(fn, "r")
+    HaloData = data["HaloData"];
+
+    # --- Read required bar region properties
+    TrackId_analysed  = HaloData["TrackId"];
+    R0bar_analysed    = HaloData["R0Bar_value"]
+    R1bar_analysed    = HaloData["R1Bar_value"]
+    maxA2_analysed    = HaloData["maxA2_value"]
+    
+    print('- snapshot        :',snap)
+    print('  Number of galaxies selected: ',len(lhalo)) 
+    
     # --- define arrays for output; n.b. we will normalise the positions by the half mass radius
     Nprof          = 41
     x_range        = [-1,1] # i.e., bins from 0.01Rhalf to 10Rhalf
@@ -101,23 +103,28 @@ for     idir,  Dir  in enumerate(BoxDir):
     xbin_linear    = np.append(0,10**xbin[:])
     print('xbin:', xbin, 'dx: ', dx, 'xbin_linear: ', xbin_linear)
 
-    # --- number of stars per bin (nB), the number of stars analyised, and the surf mass density
-    nB_stars       = np.zeros((len(lhalo),Nprof));
-    nstar_count    = np.zeros(len(lhalo),dtype=int);
+    # --- number of stars in bar region bins (nB)
+    nBar_stars       = np.zeros((len(lhalo)));
 
+    # --- maximum bar strength within the bar region
+    maxA2_stars      = np.zeros((len(lhalo)));
+    
     # --- mass weighted bin edges (left, right -> R0, R1) and middle (Rm)
-    R0_prof_stars = np.zeros((len(lhalo),Nprof));
-    Rm_prof_stars = np.zeros((len(lhalo),Nprof));
-    R1_prof_stars = np.zeros((len(lhalo),Nprof));
+    R0_stars = np.zeros((len(lhalo)));
+    Rm_stars = np.zeros((len(lhalo)));
+    R1_stars = np.zeros((len(lhalo)));
 
-    # --- mass weighted 2nd fourier amplitude and error
-    A2_prof_stars    = np.zeros((len(lhalo),Nprof));
-    A2err_prof_stars = np.zeros((len(lhalo),Nprof));
+    # --- mass weighted 2nd fourier phase angle and error in bar region
+    Phi2_stars    = np.zeros((len(lhalo)));
+    Phi2err_stars = np.zeros((len(lhalo)));
 
-    # --- mass weighted 2nd fourier position angle and error
-    Phi2_prof_stars    = np.zeros((len(lhalo),Nprof));
-    Phi2err_prof_stars = np.zeros((len(lhalo),Nprof));
+    # --- mass weighted 2nd fourier position pattern speed and error in bar region
+    Omega_stars    = np.zeros((len(lhalo)));
+    Omegaerr_stars = np.zeros((len(lhalo)));
 
+    # --- statistical correlation between ψ and Ω in bar region
+    Cov_stars = np.zeros((len(lhalo)));
+    
     # --- How many files do we need to look at?
     total_files  = 0 
     for root, _, filenames in os.walk(BasePath+Dir+RunDir+"snapshots/"+SnapBase+ext4+"/"):
@@ -155,39 +162,41 @@ for     idir,  Dir  in enumerate(BoxDir):
     
         # --- Calculate the various sizes for each galaxy of interest
         for ihalo, lh in enumerate(lhalo):
-
+            print('Looking at galaxy ID:', TrackId[ihalo])
             # -------------------------------------------------
             # --- Compute Bar Profiles for KDTree particles ---
             # -------------------------------------------------
             Rcut        = 50.
             lstar_tree  = np.asarray(star_tree.query_ball_point(halo_centre[ihalo,:], Rcut))
-                            
-            if len(lstar_tree) > 0:
-                nstar_count[ihalo] = +len(lstar_tree)
-            
-                pos_tree   = pos_stars[lstar_tree,:].value - halo_centre[ihalo,:].value
-                vel_tree   = vel_stars[lstar_tree,:].value - velCOM_stars[ihalo,:].value
 
-                # --- align galaxy with z-component of AM within 50kpc
-                trans = rotation_matrix_from_vectors(angJ_stars[ihalo,:], [0,0,1])   # Transformation Matrix
-                pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
-                vel_tree = (trans @ vel_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius
+            if (len(lstar_tree) > 0):
+                if (R1bar_analysed[ihalo] > 0.1):
+                    pos_tree   = pos_stars[lstar_tree,:].value - halo_centre[ihalo,:].value
+                    vel_tree   = vel_stars[lstar_tree,:].value - velCOM_stars[ihalo,:].value
 
-                # Setup FourierMethodFast class
-                bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
+                    # --- align galaxy with z-component of AM within 50kpc
+                    trans = rotation_matrix_from_vectors(angJ_stars[ihalo,:], [0,0,1])   # Transformation Matrix
+                    pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius, units: rhalf
+                    vel_tree = (trans @ vel_tree.T).T                                    # One BLAS call, units: km/s 
+                    
+                    # Setup FourierMethodFast class
+                    bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
+                    
+                    # Fourier analysis on bar region
+                    binOmega = bar_tool.analyseOmega(xbin_linear, R0bar_analysed[ihalo], R1bar_analysed[ihalo], tophat=True)
+                    print('analyseOmega', lh, binOmega)
 
-                # fourier analysis on bar region
-                binOmega = bar_tool.analyseOmega(xbin_linear, R0_bar, R1_bar, tophat=True)
-                print('analyseOmega', lh, binOmega)
-                
-                nB_stars[ihalo, :]           = binData[:,0]
-                R0_prof_stars[ihalo, :]      = binData[:,1]
-                Rm_prof_stars[ihalo, :]      = binData[:,2]
-                R1_prof_stars[ihalo, :]      = binData[:,3]
-                A2_prof_stars[ihalo, :]      = binData[:,4]
-                A2err_prof_stars[ihalo, :]   = binData[:,5]
-                Phi2_prof_stars[ihalo, :]    = binData[:,6]
-                Phi2err_prof_stars[ihalo, :] = binData[:,7]
+                    # --- Save data.                                               # UNITS (notes)
+                    nBar_stars[ihalo]     = binOmega[0]                            # dimensionless (particle count)
+                    maxA2_stars[ihalo]    = maxA2_analysed[ihalo]                  # dimensionless (A2 is a ratio)
+                    R0_stars[ihalo]       = binOmega[1]                            # rhalf
+                    Rm_stars[ihalo]       = binOmega[2]                            # rhalf
+                    R1_stars[ihalo]       = binOmega[3]                            # rhalf
+                    Phi2_stars[ihalo]     = binOmega[4]                            # radians
+                    Phi2err_stars[ihalo]  = binOmega[5]                            # radians
+                    Omega_stars[ihalo]    = binOmega[6] / rhalf_stars[ihalo].value # km/s/kpc
+                    Omegaerr_stars[ihalo] = binOmega[7] / rhalf_stars[ihalo].value # km/s/kpc
+                    Cov_stars[ihalo]      = binOmega[8]                            # correlation coefficient
 
         fracs     = round(float(ihalo+1)/len(lhalo),4)
         if ihalo % 100  ==0:
@@ -195,56 +204,34 @@ for     idir,  Dir  in enumerate(BoxDir):
         elif ihalo   ==len(lhalo)-1:
             print(' Group:',lh,' | f:',fracs)
 
-    stop
+    print('nBar:',  nBar_stars)
+    print('A2max:', maxA2_stars)
+    print('Rbar:',  R1_stars)
+    print('PAbar:', Phi2_stars)
+    print('Obar:',  Omega_stars)
+    
     # --- Write to hdf5
-    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
-    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+".hdf5" #COSMA path
+    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+bname+ext3+".hdf5"                  #Local path
+    #fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+bname+ext3+".hdf5" #COSMA path
     print('\n Writing to:',fn)
 
     output  = h5.File(fn, "w")
     grp0    = output.create_group("Header")
     grp1    = output.create_group("HaloData")
-    grp2    = output.create_group("Profiles")
 
-    dset    = grp0.create_dataset('Redshift',       data = 1./ScaleFactor - 1,     dtype = 'float')
+    dset    = grp0.create_dataset('Redshift',       data = 1./ScaleFactor - 1,            dtype = 'float')
 
-    dset    = grp1.create_dataset('TrackId',        data = TrackId,                dtype = 'int')
-    dset    = grp1.create_dataset('is_central',     data = is_central,             dtype = 'int')
-    dset    = grp1.create_dataset('NumStellarPart', data = nstar,                  dtype = 'int')
-    dset    = grp1.create_dataset('NumGasPart',     data = ngas,                   dtype = 'int')
-    dset    = grp1.create_dataset('N200_DM',        data = N200,                   dtype = 'int')
-    dset    = grp1.create_dataset('M200',           data = M200,                   dtype = 'float')
-    Mset    = grp1.create_dataset('r200',           data = r200,                   dtype = 'float')
-    dset    = grp1.create_dataset('MeanStellarAge', data = mean_stellar_age,       dtype = 'float')
-    dset    = grp1.create_dataset('DT',             data = DT,                     dtype = 'float')
-    dset    = grp1.create_dataset('fsub200',        data = fsub,                   dtype = 'float')
-    dset    = grp1.create_dataset('Lstar_rband',    data = Lstar_r,                dtype = 'float')
-    dset    = grp1.create_dataset('Lstar_zband',    data = Lstar_z,                dtype = 'float')
-    dset    = grp1.create_dataset('Lstar_Yband',    data = Lstar_Y,                dtype = 'float')
-    dset    = grp1.create_dataset('StellarMass',    data = mstar,                  dtype = 'float')
-    dset    = grp1.create_dataset('GasMass',        data = mgas,                   dtype = 'float')
-    dset    = grp1.create_dataset('H2Mass',         data = mH2,                    dtype = 'float')
-    dset    = grp1.create_dataset('HIMass',         data = mHI,                    dtype = 'float')
-    dset    = grp1.create_dataset('r50_stars',      data = rhalf_stars,            dtype = 'float')
-    dset    = grp1.create_dataset('angJ_stars',     data = angJ_stars,             dtype = 'float')
-    dset    = grp1.create_dataset('angJ_gas',       data = angJ_gas,               dtype = 'float')
-    dset    = grp1.create_dataset('angJ_DM',        data = angJ_DM,                dtype = 'float')
-    dset    = grp1.create_dataset('angtot_stars',   data = angtot_stars,           dtype = 'float')
-    dset    = grp1.create_dataset('angtot_gas',     data = angtot_gas,             dtype = 'float')
-    dset    = grp1.create_dataset('angtot_DM',      data = angtot_DM,              dtype = 'float')
-    dset    = grp1.create_dataset('SFR_50kpc',      data = SFR,                    dtype = 'float')
-    
-    dset    = grp2.create_dataset('xbin',           data = xbin,                   dtype='float')
-    dset    = grp2.create_dataset('xbin_linear',    data = xbin_linear,            dtype='float')
-
-    dset    = grp2.create_dataset('nB_stars',           data = nB_stars,           dtype='float')
-    dset    = grp2.create_dataset('R0_prof_stars',      data = R0_prof_stars,      dtype='float')
-    dset    = grp2.create_dataset('Rm_prof_stars',      data = Rm_prof_stars,      dtype='float')
-    dset    = grp2.create_dataset('R1_prof_stars',      data = R1_prof_stars,      dtype='float')
-    dset    = grp2.create_dataset('A2_prof_stars',      data = A2_prof_stars,      dtype='float')
-    dset    = grp2.create_dataset('A2err_prof_stars',   data = A2err_prof_stars,   dtype='float')
-    dset    = grp2.create_dataset('Phi2_prof_stars',    data = Phi2_prof_stars,    dtype='float')
-    dset    = grp2.create_dataset('Phi2err_prof_stars', data = Phi2err_prof_stars, dtype='float')
+    dset    = grp1.create_dataset('TrackId',        data = TrackId,                       dtype = 'int')
+    dset    = grp1.create_dataset('nBar_stars_dimless',    data = nBar_stars,             dtype='float')
+    dset    = grp1.create_dataset('maxA2_stars_dimless',   data = maxA2_stars,            dtype='float')
+    dset    = grp1.create_dataset('R0_stars_rhalf',        data = R0_stars,               dtype='float')
+    dset    = grp1.create_dataset('Rm_stars_rhalf',        data = Rm_stars,               dtype='float')
+    dset    = grp1.create_dataset('R1_stars_rhalf',        data = R1_stars,               dtype='float')
+    dset    = grp1.create_dataset('Phi2_stars_radians',    data = Phi2_stars,             dtype='float')
+    dset    = grp1.create_dataset('Phi2err_stars_radians', data = Phi2err_stars,          dtype='float')
+    dset    = grp1.create_dataset('Omega_stars_kmskpc',    data = Omega_stars,            dtype='float')
+    dset    = grp1.create_dataset('Omegaerr_stars_kmskpc', data = Omegaerr_stars,         dtype='float')
+    dset    = grp1.create_dataset('Cov_stars_dimless',     data = Cov_stars,              dtype='float')
     
     output.close()
 
