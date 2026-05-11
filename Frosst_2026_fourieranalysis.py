@@ -262,6 +262,11 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
         isbarred             : int   : 1 if true, 0 if false.
     """
 
+    # --- No bins within inner search radius ---
+    inner_mask = np.where(R1 < 5)[0]
+    if len(inner_mask) == 0:
+        return 0, 0, 0, 0., 0., 0., 0
+
     b0  = np.argmax(A2_prof[np.where(R1 < 5)])
     maxA2Bar   = np.nanmax(A2_prof[np.where(R1 < 5)]);
     if A2_prof[b0] < minA2Bar:
@@ -297,7 +302,7 @@ def findBarRegion(nB, R0, R1, A2_prof, Phi2_prof,
     R1_bar   = R1[b1]              # outer edge of last bar bin
     nBar     = nB[b0:b1+1].sum()   # total particle count across bar bins
 
-    if nBar < minNumBar or np.log10(R1_bar / R0_bar) < 2 * minDexBar:
+    if (nBar < minNumBar) or (np.log10(R1_bar / R0_bar) < 2 * minDexBar) or (b1 <= b0):
         # Bar region either not identified or not within bounds
         return 0, 0, 0, 0, 0, maxA2Bar, 0
     else:
