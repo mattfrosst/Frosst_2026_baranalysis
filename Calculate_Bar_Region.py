@@ -16,13 +16,20 @@ import matplotlib.pylab             as plt
 warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 
 # --------------------------------------------------------------------------
-# ---- Simulation information ----
-#Fiducial_test
-BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
-BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
-#BoxDir       = ["L0200N3008/"]                       ; RunDir   = "THERMAL_AGN_m6/"          ; snap = 127
-#BoxDir       = ["L0400N3008/"]                       ; RunDir   = "THERMAL_AGN_m7/"          ; snap = 127
-#BoxDir       = ["L0100N1504/"]                       ; RunDir   = "Thermal_non_equilibrium/" ; snap = 127
+# --- Local test path ---
+#BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
+#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+
+# --- COSMA paths ---
+BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
+#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#BoxDir       = ["L050_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 123
+#BoxDir       = ["L100_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#BoxDir       = ["L200_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+
+#BoxDir       = ["L025_m5/"]                         ; RunDir   = "THERMAL_AGN_m5/" ; snap = 127
+#BoxDir       = ["L025_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+BoxDir       = ["L025_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/" ; snap = 127
 
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
 rname        = "Stars_Mproj_Bar_Prof_"
@@ -51,7 +58,8 @@ for     idir,  Dir  in enumerate(BoxDir):
     lhalo         = np.where((Nstar_subhalo >= Nstar_min) & (Nstar_subhalo <= Nstar_max))[0]
     
     # --- Read pre-calculated profiles from hdf5
-    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
+    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
+    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+rname+ext3+".hdf5"
     print('\n Reading:',fn)
     data  = h5.File(fn, "r")
     Header   = data["Header"];
@@ -101,9 +109,9 @@ for     idir,  Dir  in enumerate(BoxDir):
     # -----------------------------------------------
     #    Write the bar region properties to hdf5
     # -----------------------------------------------
-
-    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+wname+ext3+".hdf5"                                # Local path
-    #fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+wname+ext3+".hdf5" #COSMA path
+    
+    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+wname+ext3+".hdf5"                                # Local path
+    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+wname+ext3+".hdf5" #COSMA path
     print('\n Writing to:',fn)
 
     output  = h5.File(fn, "w") # Might want to just write this back to the original file? Risky.

@@ -16,19 +16,20 @@ import matplotlib.pylab             as plt
 warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 
 # --------------------------------------------------------------------------
-# ---- Simulation information ----
-#Fiducial_test
-
 # --- Local test path ---
-BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
-BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
+#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 
 # --- COSMA paths ---
-#BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
+BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
 #BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
-#BoxDir       = ["L050_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#BoxDir       = ["L050_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 123
 #BoxDir       = ["L100_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L200_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+
+#BoxDir       = ["L025_m5/"]                         ; RunDir   = "THERMAL_AGN_m5/" ; snap = 127
+#BoxDir       = ["L025_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+BoxDir       = ["L025_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/" ; snap = 127
 
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
 fname        = "Stars_Mproj_Bar_Prof_"
@@ -81,7 +82,8 @@ for     idir,  Dir  in enumerate(BoxDir):
     angJ_stars.convert_to_units('Msun*kpc*km/s')   ; angJ_stars.convert_to_physical()
 
     # --- Read the selection data, i.e., only galaxies with a bar identified.
-    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
+    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+rname+ext3+".hdf5"
+    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+rname+ext3+".hdf5"
     print('\n Reading:',fn)
     data     = h5.File(fn, "r")
     HaloData = data["HaloData"];
@@ -128,9 +130,10 @@ for     idir,  Dir  in enumerate(BoxDir):
     # --- How many files do we need to look at?
     total_files  = 0 
     for root, _, filenames in os.walk(BasePath+Dir+RunDir+"snapshots/"+SnapBase+ext4+"/"):
-        total_files += len(filenames) - 1
+        total_files += sum(1 for f in filenames if not f.endswith('.old'))
+    total_files -= 1  # subtract the master hdf5 file
     print('total files:', total_files)
-    
+
     for ifile in range(total_files):
         Swiftfile    = BasePath+Dir+RunDir+"snapshots/"+SnapBase+ext4+"/colibre_"+ext4+'.'+str(ifile)+".hdf5"
 
@@ -211,8 +214,8 @@ for     idir,  Dir  in enumerate(BoxDir):
     print('Obar:',  Omega_stars)
     
     # --- Write to hdf5
-    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+bname+ext3+".hdf5"                  #Local path
-    #fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+bname+ext3+".hdf5" #COSMA path
+    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+bname+ext3+".hdf5"                  #Local path
+    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+bname+ext3+".hdf5" #COSMA path
     print('\n Writing to:',fn)
 
     output  = h5.File(fn, "w")
