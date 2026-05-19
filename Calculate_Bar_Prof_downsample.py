@@ -20,17 +20,17 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #Fiducial_test
 
 # --- Local test path ---
-#BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
-#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
+BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 
 # --- COSMA paths ---
-BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
+#BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
 #BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L050_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 123
 #BoxDir       = ["L100_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L200_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 
-BoxDir       = ["L025_m5/"]                         ; RunDir   = "THERMAL_AGN_m5/" ; snap = 127
+#BoxDir       = ["L025_m5/"]                         ; RunDir   = "THERMAL_AGN_m5/" ; snap = 127
 #BoxDir       = ["L025_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L025_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/" ; snap = 127
 
@@ -40,6 +40,9 @@ fname        = "Stars_Mproj_Bar_Prof_"
 # ---- analysis Information ----
 Nstar_min    = 5e3  # Minimum number of stellar particles
 Nstar_max    = 1e10 # Maximum number of stellar particles
+
+# ---- downsample information ----
+downsample = 8
 
 for     idir,  Dir  in enumerate(BoxDir):
 
@@ -215,8 +218,18 @@ for     idir,  Dir  in enumerate(BoxDir):
                 pos_tree = (trans @ pos_tree.T).T / rhalf_stars[ihalo].value         # One BLAS call, then norm by stellar half mass radius units: rhalf
                 vel_tree = (trans @ vel_tree.T).T                                    # One BLAS call, units: km/s
 
+                # --- downsample position
+                sample_size = int(len(pos_tree) / downsample)
+                rng = np.random.default_rng(seed=42)  # seed optional for reproducibility
+                indices = rng.choice(len(pos_tree), size=sample_size, replace=False)
+
+                # Down-sample all arrays using the same indices
+                ds_pos_tree  = pos_tree[indices]
+                ds_vel_tree  = vel_tree[indices]
+                ds_mass_tree = mass_stars[lstar_tree][indices] * downsample
+
                 # bar properties measured here
-                bar_tool  = FourierMethodFast(mass_stars[lstar_tree], pos_tree[:,0], pos_tree[:,1], vel_tree[:,0], vel_tree[:,1])
+                bar_tool  = FourierMethodFast(ds_mass_tree, ds_pos_tree[:,0], ds_pos_tree[:,1], ds_vel_tree[:,0], ds_vel_tree[:,1])
                 binData   = bar_tool.analyseBins(xbin_linear)
                 
                 nB_stars[ihalo, :]           = binData[:,0]
@@ -235,8 +248,8 @@ for     idir,  Dir  in enumerate(BoxDir):
             print(' Group:',lh,' | f:',fracs)
 
     # --- Write to hdf5
-    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
-    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+".hdf5" #COSMA path
+    #fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+"_downsampled8.hdf5"                  #Local path
+    fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+"_downsampled8.hdf5" #COSMA path
     print('\n Writing to:',fn)
 
     output  = h5.File(fn, "w")
