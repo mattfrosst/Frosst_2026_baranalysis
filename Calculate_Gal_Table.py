@@ -78,6 +78,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     kappa_co_allstars = soap.bound_subhalo.kappa_corot_stars[lhalo]
 
     # --- Exclusive sphere 50kpc: galaxy properties
+    mDM               = soap.exclusive_sphere_50kpc.dark_matter_mass[lhalo]
     mstar             = soap.exclusive_sphere_50kpc.stellar_mass[lhalo]
     mgas              = soap.exclusive_sphere_50kpc.gas_mass[lhalo]
     sf_mgas           = soap.exclusive_sphere_50kpc.star_forming_gas_mass[lhalo]
@@ -99,6 +100,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     angJ_baryons      = soap.inclusive_sphere_50kpc.angular_momentum_baryons[lhalo]
 
     # --- Exclusive sphere 30kpc: galaxy properties
+    mDM_30kpc               = soap.exclusive_sphere_30kpc.dark_matter_mass[lhalo]
     mstar_30kpc             = soap.exclusive_sphere_30kpc.stellar_mass[lhalo]
     mgas_30kpc              = soap.exclusive_sphere_30kpc.gas_mass[lhalo]
     sf_mgas_30kpc           = soap.exclusive_sphere_30kpc.star_forming_gas_mass[lhalo]
@@ -120,6 +122,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     angJ_baryons_30kpc      = soap.inclusive_sphere_30kpc.angular_momentum_baryons[lhalo]
     
     # --- Exclusive sphere 10kpc: galaxy properties
+    mDM_10kpc               = soap.exclusive_sphere_10kpc.dark_matter_mass[lhalo]
     mstar_10kpc             = soap.exclusive_sphere_10kpc.stellar_mass[lhalo]
     mgas_10kpc              = soap.exclusive_sphere_10kpc.gas_mass[lhalo]
     sf_mgas_10kpc           = soap.exclusive_sphere_10kpc.star_forming_gas_mass[lhalo]
@@ -141,6 +144,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     angJ_baryons_10kpc      = soap.inclusive_sphere_10kpc.angular_momentum_baryons[lhalo]
     
     # --- Exclusive sphere 3kpc: galaxy properties
+    mDM_3kpc               = soap.exclusive_sphere_3kpc.dark_matter_mass[lhalo]
     mstar_3kpc             = soap.exclusive_sphere_3kpc.stellar_mass[lhalo]
     mgas_3kpc              = soap.exclusive_sphere_3kpc.gas_mass[lhalo]
     sf_mgas_3kpc           = soap.exclusive_sphere_3kpc.star_forming_gas_mass[lhalo]
@@ -188,6 +192,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     halo_centre.convert_to_units('kpc')            ; halo_centre.convert_to_physical()
 
     # -- 50kpc --
+    mDM.convert_to_units('Msun')                   ; mDM.convert_to_physical()
     mstar.convert_to_units('Msun')                 ; mstar.convert_to_physical()
     mgas.convert_to_units('Msun')                  ; mgas.convert_to_physical()
     sf_mgas.convert_to_units('Msun')               ; sf_mgas.convert_to_physical()
@@ -200,6 +205,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     angJ_baryons.convert_to_units('Msun*kpc*km/s') ; angJ_baryons.convert_to_physical()
 
     # -- 30kpc --
+    mDM_30kpc.convert_to_units('Msun')             ; mDM_30kpc.convert_to_physical()
     mstar_30kpc.convert_to_units('Msun')           ; mstar_30kpc.convert_to_physical()
     mgas_30kpc.convert_to_units('Msun')            ; mgas_30kpc.convert_to_physical()
     sf_mgas_30kpc.convert_to_units('Msun')         ; sf_mgas_30kpc.convert_to_physical()
@@ -212,6 +218,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     angJ_baryons_30kpc.convert_to_units('Msun*kpc*km/s') ; angJ_baryons_30kpc.convert_to_physical()
 
     # -- 10kpc --
+    mDM_10kpc.convert_to_units('Msun')             ; mDM_10kpc.convert_to_physical()
     mstar_10kpc.convert_to_units('Msun')           ; mstar_10kpc.convert_to_physical()
     mgas_10kpc.convert_to_units('Msun')            ; mgas_10kpc.convert_to_physical()
     sf_mgas_10kpc.convert_to_units('Msun')         ; sf_mgas_10kpc.convert_to_physical()
@@ -224,6 +231,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     angJ_baryons_10kpc.convert_to_units('Msun*kpc*km/s') ; angJ_baryons_10kpc.convert_to_physical()
 
     # -- 3kpc --
+    mDM_3kpc.convert_to_units('Msun')             ; mDM_3kpc.convert_to_physical()
     mstar_3kpc.convert_to_units('Msun')           ; mstar_3kpc.convert_to_physical()
     mgas_3kpc.convert_to_units('Msun')            ; mgas_3kpc.convert_to_physical()
     sf_mgas_3kpc.convert_to_units('Msun')         ; sf_mgas_3kpc.convert_to_physical()
@@ -285,6 +293,7 @@ for     idir,  Dir  in enumerate(BoxDir):
 
     # --- ES within 50kpc ---
     dset    = grp1.create_dataset('StellarMass',    data = mstar,                  dtype = 'float')
+    dset    = grp1.create_dataset('DarkMatterMass', data = mDM,                    dtype = 'float')
     dset    = grp1.create_dataset('GasMass',        data = mgas,                   dtype = 'float')
     dset    = grp1.create_dataset('StarFormingGasMass', data = sf_mgas,            dtype = 'float')
     dset    = grp1.create_dataset('H2Mass',         data = mH2,                    dtype = 'float')
@@ -307,6 +316,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     
     # --- ES within 30kpc ---
     dset    = grp2.create_dataset('StellarMass',    data = mstar_30kpc,            dtype = 'float')
+    dset    = grp2.create_dataset('DarkMatterMass', data = mDM_30kpc,              dtype = 'float')
     dset    = grp2.create_dataset('GasMass',        data = mgas_30kpc,             dtype = 'float')
     dset    = grp2.create_dataset('StarFormingGasMass', data = sf_mgas_30kpc,      dtype = 'float')
     dset    = grp2.create_dataset('H2Mass',         data = mH2_30kpc,              dtype = 'float')
@@ -327,6 +337,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     
     # --- ES within 10kpc ---
     dset    = grp3.create_dataset('StellarMass',    data = mstar_10kpc,            dtype = 'float')
+    dset    = grp3.create_dataset('DarkMatterMass', data = mDM_10kpc,              dtype = 'float')
     dset    = grp3.create_dataset('GasMass',        data = mgas_10kpc,             dtype = 'float')
     dset    = grp3.create_dataset('StarFormingGasMass', data = sf_mgas_10kpc,      dtype = 'float')
     dset    = grp3.create_dataset('H2Mass',         data = mH2_10kpc,              dtype = 'float')
@@ -347,6 +358,7 @@ for     idir,  Dir  in enumerate(BoxDir):
 
     # --- ES within 3kpc ---
     dset    = grp4.create_dataset('StellarMass',    data = mstar_3kpc,            dtype = 'float')
+    dset    = grp4.create_dataset('DarkMatterMass', data = mDM_3kpc,              dtype = 'float')
     dset    = grp4.create_dataset('GasMass',        data = mgas_3kpc,             dtype = 'float')
     dset    = grp4.create_dataset('StarFormingGasMass', data = sf_mgas_3kpc,      dtype = 'float')
     dset    = grp4.create_dataset('H2Mass',         data = mH2_3kpc,              dtype = 'float')
