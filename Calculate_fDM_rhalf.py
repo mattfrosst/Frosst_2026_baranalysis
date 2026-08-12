@@ -156,10 +156,10 @@ for     idir,  Dir  in enumerate(BoxDir):
                 mdm_3r50[ihalo] += np.sum(m_pts)
 
     # --- Compute stellar-to-dark matter mass ratios (M_* / M_DM) ---
-    fDM_r50  = np.where(mdm_1r50 > 0, mstar_1r50 / mdm_1r50, np.nan)
+    fDM_1r50  = np.where(mdm_1r50 > 0, mstar_1r50 / mdm_1r50, np.nan)
     fDM_2r50 = np.where(mdm_2r50 > 0, mstar_2r50 / mdm_2r50, np.nan)
     fDM_3r50 = np.where(mdm_3r50 > 0, mstar_3r50 / mdm_3r50, np.nan)
-    print(fDM_r50)
+    print(fDM_1r50)
     
     # --- Write to hdf5
     fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
@@ -174,10 +174,19 @@ for     idir,  Dir  in enumerate(BoxDir):
 
     dset    = grp1.create_dataset('TrackId',        data = TrackId,                dtype = 'int')
     dset    = grp1.create_dataset('r50_stars',      data = rhalf_stars,            dtype = 'float')
-    dset    = grp1.create_dataset('fDM_r50',        data = fDM_r50,                dtype = 'float')
-    dset    = grp1.create_dataset('fDM_2r50',       data = fDM_2r50,               dtype = 'float')
-    dset    = grp1.create_dataset('fDM_3r50',       data = fDM_3r50,               dtype = 'float')
 
+    dset    = grp1.create_dataset('fDM_1r50',       data = fDM_1r50,               dtype = 'float')
+    dset    = grp1.create_dataset('mstar_1r50',     data = mstar_1r50,             dtype = 'float')
+    dset    = grp1.create_dataset('mdm_1r50',       data = mdm_1r50,               dtype = 'float')
+    
+    dset    = grp1.create_dataset('fDM_2r50',       data = fDM_2r50,               dtype = 'float')
+    dset    = grp1.create_dataset('mstar_2r50',     data = mstar_2r50,             dtype = 'float')
+    dset    = grp1.create_dataset('mdm_2r50',       data = mdm_2r50,               dtype = 'float')
+    
+    dset    = grp1.create_dataset('fDM_3r50',       data = fDM_3r50,               dtype = 'float')
+    dset    = grp1.create_dataset('mstar_3r50',     data = mstar_3r50,             dtype = 'float')
+    dset    = grp1.create_dataset('mdm_3r50',       data = mdm_3r50,               dtype = 'float')
+    
     output.close()
 
 sys.exit() ###################################################################
