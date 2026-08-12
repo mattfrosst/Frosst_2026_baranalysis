@@ -1,7 +1,6 @@
 from   periodic_kdtree              import PeriodicCKDTree
 from   colibre_utility              import *
 import numpy                        as     np
-import scipy                        as     scipy
 import unyt                         as     unyt
 import h5py                         as     h5
 import swiftsimio                   as     sw
@@ -67,6 +66,10 @@ for     idir,  Dir  in enumerate(BoxDir):
     rhalf_stars.convert_to_units('kpc')            ; rhalf_stars.convert_to_physical()
     halo_centre.convert_to_units('kpc')            ; halo_centre.convert_to_physical()
 
+    # --- Extract raw np values upfront to avoid unyt overhead in loops ---
+    r50_vals    = rhalf_stars.value
+    centre_vals = halo_centre.value
+    
     # --- stellar-to-DM mass fraction within integer mults of r50 ---
     mstar_1r50 = np.zeros((len(lhalo)));
     mdm_1r50   = np.zeros((len(lhalo)));
@@ -92,7 +95,8 @@ for     idir,  Dir  in enumerate(BoxDir):
         ScaleFactor  = meta_data.scale_factor
         boxsize      = meta_data.boxsize * ScaleFactor
         boxsize.convert_to_units('kpc')
-    
+        boxsize_val  = boxsize.value
+        
         # --- read the relevant stellar particle data
         pos_stars  = data.stars.coordinates           ; print(' ...read stellar coordinates')
         mass_stars = data.stars.masses                ; print(' ...read stellar masses')
@@ -103,46 +107,53 @@ for     idir,  Dir  in enumerate(BoxDir):
         mass_stars.convert_to_units('Msun') ; mass_stars.convert_to_physical()
         pos_dm.convert_to_units('kpc')      ; pos_dm.convert_to_physical()                                                                                 
         mass_dm.convert_to_units('Msun')    ; mass_dm.convert_to_physical()
-                
+
+        # --- Extract np arrays
+        pos_stars_val  = pos_stars.value
+        mass_stars_val = mass_stars.value
+        pos_dm_val     = pos_dm.value
+        mass_dm_val    = mass_dm.value
+        
         # Build relevant KDE trees
         print(' \n Building particle tree...')
-        star_tree = PeriodicCKDTree(boxsize, pos_stars, leafsize=100) ; print(' Star particle tree done... \n')
-        dm_tree = PeriodicCKDTree(boxsize, pos_dm, leafsize=100) ; print(' DM particle tree done... \n')    
+        star_tree = PeriodicCKDTree(boxsize_val, pos_stars, leafsize=100) ; print(' Star particle tree done... \n')
+        dm_tree = PeriodicCKDTree(boxsize_val, pos_dm, leafsize=100) ; print(' DM particle tree done... \n')    
     
         # --- Calculate the various sizes for each galaxy of interest
         for ihalo, lh in enumerate(lhalo):
             # -------------------------------------------------
             # --- Compute mass w/in r50 for KDTree particles ---
             # -------------------------------------------------
-            centre_i = halo_centre[ihalo,:].value
-            r50_i    = rhalf_stars[ihalo].value
+            c_i   = centre_vals[ihalo]
+            r50_i = r50_vals[ihalo]
 
-            # r < 1r50
-            lstar_tree_1 = np.asarray(star_tree.query_ball_point(halo_centre[ihalo,:], r50_i))
-            ldm_tree_1   = np.asarray(dm_tree.query_ball_point(halo_centre[ihalo,:], r50_i))
+            r1_sq = r50_i**2
+            r2_sq = (2.0 * r50_i)**2
+            r3    = 3.0 * r50_i
 
-            if len(lstar_tree_1) > 0:
-                mstar_1r50[ihalo] = np.sum(mass_stars[lstar_tree_1].value)
-            if len(ldm_tree_1) > 0:
-                mdm_1r50[ihalo]   = np.sum(mass_dm[ldm_tree_1].value)
+            # --- Stellar Particles ---
+            idx_star = star_tree.query_ball_point(c_i, r3)
+            if len(idx_star) > 0:
+                dx = pos_stars_val[idx_star] - c_i
+                dx -= boxsize_val * np.round(dx / boxsize_val)  # Periodic boundary correction
+                dr2 = np.sum(dx**2, axis=1)
 
-            # r < 2r50
-            lstar_tree_2 = np.asarray(star_tree.query_ball_point(halo_centre[ihalo,:], 2*r50_i))
-            ldm_tree_2   = np.asarray(dm_tree.query_ball_point(halo_centre[ihalo,:], 2*r50_i))
+                m_pts = mass_stars_val[idx_star]
+                mstar_1r50[ihalo] += np.sum(m_pts[dr2 <= r1_sq])
+                mstar_2r50[ihalo] += np.sum(m_pts[dr2 <= r2_sq])
+                mstar_3r50[ihalo] += np.sum(m_pts)  # All queried particles fall within 3*r50
 
-            if len(lstar_tree_2) > 0:
-                mstar_2r50[ihalo] = np.sum(mass_stars[lstar_tree_2].value)
-            if len(ldm_tree_2) > 0:
-                mdm_2r50[ihalo]   = np.sum(mass_dm[ldm_tree_2].value)
+            # --- Dark Matter Particles ---
+            idx_dm = dm_tree.query_ball_point(c_i, r3)
+            if len(idx_dm) > 0:
+                dx = pos_dm_val[idx_dm] - c_i
+                dx -= boxsize_val * np.round(dx / boxsize_val)  # Periodic boundary correction
+                dr2 = np.sum(dx**2, axis=1)
 
-            # r < 3r50
-            lstar_tree_3 = np.asarray(star_tree.query_ball_point(halo_centre[ihalo,:], 3*r50_i))
-            ldm_tree_3   = np.asarray(dm_tree.query_ball_point(halo_centre[ihalo,:], 3*r50_i))
-
-            if len(lstar_tree_3) > 0:
-                mstar_3r50[ihalo] = np.sum(mass_stars[lstar_tree_3].value)
-            if len(ldm_tree_3) > 0:
-                mdm_3r50[ihalo]   = np.sum(mass_dm[ldm_tree_3].value)
+                m_pts = mass_dm_val[idx_dm]
+                mdm_1r50[ihalo] += np.sum(m_pts[dr2 <= r1_sq])
+                mdm_2r50[ihalo] += np.sum(m_pts[dr2 <= r2_sq])
+                mdm_3r50[ihalo] += np.sum(m_pts)
 
     # --- Compute stellar-to-dark matter mass ratios (M_* / M_DM) ---
     fDM_r50  = np.where(mdm_1r50 > 0, mstar_1r50 / mdm_1r50, 0.0)
@@ -162,6 +173,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     dset    = grp0.create_dataset('Redshift',       data = 1./ScaleFactor - 1,     dtype = 'float')
 
     dset    = grp1.create_dataset('TrackId',        data = TrackId,                dtype = 'int')
+    dset    = grp1.create_dataset('r50_stars',      data = rhalf_stars,            dtype = 'float')
     dset    = grp1.create_dataset('fDM_r50',        data = fDM_r50,                dtype = 'float')
     dset    = grp1.create_dataset('fDM_2r50',       data = fDM_2r50,               dtype = 'float')
     dset    = grp1.create_dataset('fDM_3r50',       data = fDM_3r50,               dtype = 'float')
