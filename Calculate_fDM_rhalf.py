@@ -156,9 +156,9 @@ for     idir,  Dir  in enumerate(BoxDir):
                 mdm_3r50[ihalo] += np.sum(m_pts)
 
     # --- Compute stellar-to-dark matter mass ratios (M_* / M_DM) ---
-    fDM_r50  = np.where(mdm_1r50 > 0, mstar_1r50 / mdm_1r50, 0.0)
-    fDM_2r50 = np.where(mdm_2r50 > 0, mstar_2r50 / mdm_2r50, 0.0)
-    fDM_3r50 = np.where(mdm_3r50 > 0, mstar_3r50 / mdm_3r50, 0.0)
+    fDM_r50  = np.where(mdm_1r50 > 0, mstar_1r50 / mdm_1r50, np.nan)
+    fDM_2r50 = np.where(mdm_2r50 > 0, mstar_2r50 / mdm_2r50, np.nan)
+    fDM_3r50 = np.where(mdm_3r50 > 0, mstar_3r50 / mdm_3r50, np.nan)
     print(fDM_r50)
     
     # --- Write to hdf5
