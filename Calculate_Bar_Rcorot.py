@@ -16,11 +16,18 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #
 #       Vc(R_CR) = Omega_p * R_CR      <=>      Vc(R) / R = Omega_p
 #
+# Pipeline position (all outputs live in OutBase + BoxDir + RunDir):
+#   Calculate_Bar_Prof.py   -> Stars_Mproj_Bar_Prof_<snap>.hdf5   (A2/Phi2 profiles)
+#   Calculate_Bar_Region.py -> Stars_Mproj_Bar_Region_<snap>.hdf5 (isbarred, R0/R1 bar, rhalf units)
+#   Calculate_Bar_Omega.py  -> Stars_Mproj_Bar_Omega_<snap>.hdf5  (pattern speed, km/s/kpc)
+#   Calculate_Bar_Rcorot.py -> CoRotation_<snap>_chunkNNNN.hdf5   (this script)
+#
 # Method:
-#   1. Pattern speeds are READ from your existing bar-properties file
-#      (matched to the SOAP catalogue by TrackId) -- nothing is
-#      recalculated here. Only galaxies with a valid pattern speed are
-#      analysed.
+#   1. Pattern speeds (and their errors) are READ from the Omega file and
+#      the bar flag + bar length from the Region file, both matched to
+#      the SOAP catalogue by TrackId -- nothing is recalculated here.
+#      Only galaxies with isbarred == 1 and a finite, non-zero pattern
+#      speed are analysed.
 #   2. For each barred galaxy, build the enclosed-mass profile M(<r) of
 #      ALL stars + gas + dark matter on a log-spaced radial grid, using
 #      the same cell-batched spatial masking as the fDM / sigma scripts
@@ -28,18 +35,22 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #   3. Vc(r) = sqrt(G M(<r) / r)   (spherical approximation).
 #   4. Find where Vc(r)/r drops through Omega_p (linear interpolation in
 #      log r). Status codes below say what happened for each galaxy.
+#      R_CR is also solved at |Omega_p| -/+ its statistical error to give
+#      a range, and the rate parameter Rcal = R_CR / R_bar is written out
+#      (R_bar = R1Bar_value * r50 from the Region file).
 #
-# Known simplifications (worth stating in any paper/thesis):
+# Known simplifications:
 #   - Vc is the SPHERICAL estimate, not the in-plane radial force of the
-#     flattened disc. It slightly overestimates Vc in the disc plane
-#     relative to the true circular speed for a thin disc, so R_CR is
-#     mildly biased high compared with a force-based calculation.
+#     flattened disc. Where the disc dominates, a thin disc has a HIGHER
+#     in-plane Vc than sqrt(GM(<r)/r) (~15% near the exponential-disc
+#     peak), so R_CR here is mildly biased LOW compared with a
+#     force-based calculation.
 #   - Black-hole particles are not included (negligible mass on these
 #     scales; add data.black_holes if you want strict completeness).
 #   - Halos whose R_MAX aperture crosses a SWIFT cell boundary are
 #     skipped (status 3, NaN), as in the previous cell-batched scripts.
 #
-# STATUS CODES (HaloData/Status)
+# STATUS CODES (returned as HaloData/Status):
 #   0  OK: co-rotation radius found inside the grid
 #   1  Vc/R < Omega_p already at R_MIN  -> R_CR is inside the radius we can
 #      trust (a very fast bar, or a resolution-limited centre)
@@ -61,19 +72,31 @@ Nstar_min    = 5e3
 Nstar_max    = 1e10
 
 # --------------------------------------------------------------------------
-# ---- BAR PROPERTIES FILE  *** CHECK ALL OF THESE -- I HAVE NOT SEEN IT *** ----
-# I could not see how your pattern speeds are stored (the Calculate_Bar_Prof.py
-# script only saves A2/Phi2 profiles), so these are PLACEHOLDERS.
-def bar_file_for(Dir, RunDir, ext3):
-    return OutBase + Dir + RunDir + "BarProperties_" + ext3 + "_merged.hdf5"   # <-- placeholder name
+# ---- Inputs from the previous bar analysis ----
+# File prefixes match bname / wname in Calculate_Bar_Omega.py and
+# Calculate_Bar_Region.py. BoxDir / RunDir / snap above must match the run
+# those scripts were executed on.
+oname        = "Stars_Mproj_Bar_Omega_"    # Calculate_Bar_Omega.py output
+wname        = "Stars_Mproj_Bar_Region_"   # Calculate_Bar_Region.py output
 
-BAR_GROUP              = "HaloData"       # <-- group holding the per-halo arrays
-BAR_TRACKID            = "TrackId"        # <-- dataset with HBT track ids
-BAR_PATTERN_SPEED      = "PatternSpeed"   # <-- dataset with pattern speeds
-BAR_PATTERN_SPEED_UNIT = "km/s/kpc"       # <-- units that dataset is stored in
-BAR_FLAG               = None             # optional: name of a "is barred" dataset
-                                          #   (non-zero = barred). None = use any
-                                          #   finite, non-zero pattern speed.
+def omega_file_for(Dir, RunDir, ext3):
+    return OutBase + Dir + RunDir + oname + ext3 + ".hdf5"
+
+def region_file_for(Dir, RunDir, ext3):
+    return OutBase + Dir + RunDir + wname + ext3 + ".hdf5"
+
+
+def read_halodata(fn, names):
+    """Read the given HaloData datasets from one of the bar-analysis files."""
+    import h5py as h5
+    if not os.path.exists(fn):
+        sys.exit(f"Input file not found: {fn}\nCheck BoxDir / RunDir / snap / OutBase.")
+    with h5.File(fn, 'r') as f:
+        grp     = f["HaloData"]
+        missing = [n for n in names if n not in grp]
+        if missing:
+            sys.exit(f"Datasets {missing} not in {fn}:HaloData. Available: {list(grp.keys())}")
+        return {n: np.asarray(grp[n][()]) for n in names}
 
 # --------------------------------------------------------------------------
 # ---- Radial grid for the rotation curve (PHYSICAL kpc) ----
@@ -204,34 +227,30 @@ if __name__ == "__main__":
         Swiftfile = BasePath+Dir+RunDir+"snapshots/"+SnapBase+ext4+"/colibre_"+ext4+".hdf5"
         soap_file = BasePath+Dir+RunDir+"SOAP-HBT/halo_properties_"+ext4+".hdf5"
 
-        # ---------------- pattern speeds from the bar file ----------------
-        bar_fn = bar_file_for(Dir, RunDir, ext3)
-        print('Bar file  :', bar_fn)
-        if not os.path.exists(bar_fn):
-            sys.exit(f"Bar properties file not found: {bar_fn}\n"
-                     f"Edit bar_file_for() at the top of this script.")
+        # ---------------- pattern speeds + bar region from previous analysis ----------------
+        omega_fn  = omega_file_for(Dir, RunDir, ext3)
+        region_fn = region_file_for(Dir, RunDir, ext3)
+        print('Omega file :', omega_fn)
+        print('Region file:', region_fn)
 
-        with h5.File(bar_fn, 'r') as f:
-            if BAR_GROUP not in f:
-                sys.exit(f"Group '{BAR_GROUP}' not in bar file. Top-level groups: {list(f.keys())}")
-            grp = f[BAR_GROUP]
-            for needed in (BAR_TRACKID, BAR_PATTERN_SPEED):
-                if needed not in grp:
-                    sys.exit(f"Dataset '{needed}' not in '{BAR_GROUP}'. "
-                             f"Available datasets: {list(grp.keys())}\n"
-                             f"Set BAR_TRACKID / BAR_PATTERN_SPEED at the top of this script.")
-            bar_track = np.asarray(grp[BAR_TRACKID][()]).astype(np.int64)
-            bar_wp    = np.asarray(grp[BAR_PATTERN_SPEED][()], dtype=float)
-            bar_flag  = None
-            if BAR_FLAG is not None:
-                bar_flag = np.asarray(grp[BAR_FLAG][()]) != 0
+        om  = read_halodata(omega_fn,  ["TrackId", "Omega_stars_kmskpc", "Omegaerr_stars_kmskpc"])
+        reg = read_halodata(region_fn, ["TrackId", "isbarred", "R1Bar_value"])
 
-        bar_wp = unyt.unyt_array(bar_wp, BAR_PATTERN_SPEED_UNIT).to('km/s/kpc').value
-        valid  = np.isfinite(bar_wp) & (bar_wp != 0)
-        if bar_flag is not None:
-            valid &= bar_flag
-        wp_by_track = dict(zip(bar_track[valid].tolist(), bar_wp[valid].tolist()))
-        print(f'  {len(wp_by_track)} galaxies with a valid pattern speed in the bar file')
+        # isbarred and R1Bar (in units of r50) from the Region file
+        reg_track    = reg["TrackId"].astype(np.int64)
+        barred_track = set(reg_track[reg["isbarred"] != 0].tolist())
+        R1bar_by_track = dict(zip(reg_track.tolist(), reg["R1Bar_value"].astype(float).tolist()))
+
+        # Pattern speeds (km/s/kpc, signed: + = rotates with the stellar spin)
+        om_track = om["TrackId"].astype(np.int64)
+        om_wp    = om["Omega_stars_kmskpc"].astype(float)
+        om_err   = om["Omegaerr_stars_kmskpc"].astype(float)
+        valid    = np.isfinite(om_wp) & (om_wp != 0)
+        valid   &= np.array([t in barred_track for t in om_track.tolist()], dtype=bool)
+        wp_by_track  = dict(zip(om_track[valid].tolist(), om_wp[valid].tolist()))
+        err_by_track = dict(zip(om_track[valid].tolist(), om_err[valid].tolist()))
+        print(f'  {len(barred_track)} barred in Region file; '
+              f'{len(wp_by_track)} of those have a valid pattern speed in the Omega file')
 
         # ---------------- SOAP selection, restricted to barred galaxies ----------------
         print('SOAP file :', soap_file)
@@ -261,7 +280,13 @@ if __name__ == "__main__":
 
         r50_vals    = rhalf_stars.value
         centre_vals = halo_centre.value
-        omega_p     = np.array([wp_by_track[t] for t in TrackId.tolist()])   # signed, km/s/kpc
+        omega_p     = np.array([wp_by_track[t]  for t in TrackId.tolist()])  # signed, km/s/kpc
+        omega_err   = np.array([err_by_track[t] for t in TrackId.tolist()])  # km/s/kpc
+        R_bar       = np.array([R1bar_by_track[t] for t in TrackId.tolist()]) * r50_vals  # kpc
+        n_retro     = int(np.sum(omega_p < 0))
+        if n_retro:
+            print(f'  WARNING: {n_retro} bars have Omega_p < 0 (counter to the stellar spin); '
+                  f'|Omega_p| is used for R_CR')
 
         # ---------------- metadata + cell grid ----------------
         mask0       = sw.mask(Swiftfile, spatial_only=True)
@@ -332,10 +357,19 @@ if __name__ == "__main__":
         skipped   = np.all(np.isnan(Menc_tot), axis=1)
         status[skipped] = 3
 
-        for i in np.flatnonzero(~skipped):
-            R_CR[i], status[i], n_cross[i] = find_corotation(edges, Vc[i], abs(omega_p[i]))
+        # Range from the statistical error on Omega_p: a faster bar gives a
+        # smaller R_CR, so |Omega_p| + err -> lower bound, |Omega_p| - err -> upper.
+        R_CR_lo   = np.full(len(lhalo), np.nan)
+        R_CR_hi   = np.full(len(lhalo), np.nan)
 
-        Vc_CR = abs(omega_p) * R_CR           # = Vc at R_CR by construction, km/s
+        for i in np.flatnonzero(~skipped):
+            wp = abs(omega_p[i])
+            R_CR[i], status[i], n_cross[i] = find_corotation(edges, Vc[i], wp)
+            R_CR_lo[i] = find_corotation(edges, Vc[i], wp + omega_err[i])[0]
+            R_CR_hi[i] = find_corotation(edges, Vc[i], wp - omega_err[i])[0]
+
+        Vc_CR   = abs(omega_p) * R_CR         # = Vc at R_CR by construction, km/s
+        Rcal    = R_CR / R_bar                # rate parameter (fast bar: 1 <= Rcal <= 1.4)
 
         print('\n  Status counts: ' + ', '.join(
             f'{s}: {int(np.sum(status == s))}' for s in range(5)))
@@ -343,6 +377,8 @@ if __name__ == "__main__":
         if np.any(ok):
             print(f'  R_CR (kpc) for status 0: min={np.nanmin(R_CR[ok]):.2f}  '
                   f'median={np.nanmedian(R_CR[ok]):.2f}  max={np.nanmax(R_CR[ok]):.2f}')
+            print(f'  R_CR/R_bar for status 0: median={np.nanmedian(Rcal[ok]):.2f}  '
+                  f'(fraction < 1: {np.nanmean(Rcal[ok] < 1):.2f})')
 
         # ---------------- write ----------------
         fn = OutBase + Dir + RunDir + fname + ext3 + f"_chunk{args.chunk_id:04d}.hdf5"
@@ -362,11 +398,18 @@ if __name__ == "__main__":
             grp0.create_dataset('NHalosIncluded',  data=n_included,         dtype='int')
             grp0.create_dataset('RMinKpc',         data=R_MIN_KPC,          dtype='float')
             grp0.create_dataset('RMaxKpc',         data=R_MAX_KPC,          dtype='float')
+            grp0.attrs['OmegaFile']  = omega_fn
+            grp0.attrs['RegionFile'] = region_fn
 
             grp1.create_dataset('TrackId',         data=TrackId,            dtype='int')
             grp1.create_dataset('r50_stars',       data=r50_vals,           dtype='float')
-            grp1.create_dataset('PatternSpeed_kms_per_kpc', data=omega_p,   dtype='float')
+            grp1.create_dataset('PatternSpeed_kms_per_kpc',    data=omega_p,   dtype='float')
+            grp1.create_dataset('PatternSpeedErr_kms_per_kpc', data=omega_err, dtype='float')
+            grp1.create_dataset('R_bar_kpc',       data=R_bar,              dtype='float')
             grp1.create_dataset('R_CR_kpc',        data=R_CR,               dtype='float')
+            grp1.create_dataset('R_CR_lo_kpc',     data=R_CR_lo,            dtype='float')
+            grp1.create_dataset('R_CR_hi_kpc',     data=R_CR_hi,            dtype='float')
+            grp1.create_dataset('R_CR_over_R_bar', data=Rcal,               dtype='float')
             grp1.create_dataset('R_CR_over_r50',   data=R_CR / r50_vals,    dtype='float')
             grp1.create_dataset('Vc_at_CR_kms',    data=Vc_CR,              dtype='float')
             grp1.create_dataset('Status',          data=status,             dtype='int')
