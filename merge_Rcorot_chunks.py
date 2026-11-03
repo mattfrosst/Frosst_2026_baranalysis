@@ -44,7 +44,13 @@ STATUS_LABELS = {
     2: 'R_CR > R_MAX',
     3: 'skipped (crosses cell boundary)',
     4: 'invalid inputs',
+    5: 'not barred',
+    6: 'barred, no valid pattern speed',
 }
+
+# Per-chunk halo counts in the Header, summed over chunks. Together they
+# must add up to the number of rows merged.
+HEADER_COUNTS = ['NHalosIncluded', 'NHalosSkipped', 'NHalosNotBarred', 'NHalosNoOmega']
 
 
 def find_chunk_files():
@@ -105,8 +111,7 @@ def main():
     # --- Read each chunk (read-only), validate, and collect arrays ---
     per_chunk_halo = []
     per_chunk_prof = []
-    total_skipped  = 0
-    total_included = 0
+    totals         = {k: 0 for k in HEADER_COUNTS}
 
     for cid in range(n_chunks_expected):
         path = by_id[cid]
@@ -135,8 +140,12 @@ def main():
                               f"0 used {ref}. Aborting -- chunks were built from "
                               f"different bar-analysis inputs.")
 
-            total_skipped  += int(hdr['NHalosSkipped'][()])
-            total_included += int(hdr['NHalosIncluded'][()])
+            for k in HEADER_COUNTS:
+                if k not in hdr:
+                    sys.exit(f"Chunk {cid} ({path}) has no Header/{k}. It was "
+                              f"probably made by an older Calculate_Bar_Rcorot.py "
+                              f"(barred galaxies only) -- re-run it before merging.")
+                totals[k] += int(hdr[k][()])
 
             prof = f['Profiles']
             if not np.array_equal(prof['RadiusKpc'][()], radius_ref):
@@ -180,13 +189,12 @@ def main():
         sys.exit(f"{int(np.sum(counts > 1))} TrackId(s) appear in more than one "
                   f"chunk (e.g. {uniq[counts > 1][:5].tolist()}). Aborting.")
 
-    if n_total != total_included + total_skipped:
+    if n_total != sum(totals.values()):
         sys.exit(f"Halo count mismatch: {n_total} halos merged, but chunk headers "
-                  f"report {total_included} included + {total_skipped} skipped. "
-                  f"Aborting.")
+                  f"sum to {sum(totals.values())} ({totals}). Aborting.")
 
-    print(f'\nTotal halos after merge: {n_total} '
-          f'(included: {total_included}, skipped/NaN: {total_skipped})')
+    print(f'\nTotal halos after merge: {n_total} ('
+          + ', '.join(f'{k}: {v}' for k, v in totals.items()) + ')')
     status = merged_halo['Status']
     for s, label in STATUS_LABELS.items():
         print(f'  Status {s} ({label}): {int(np.sum(status == s))}')
@@ -199,8 +207,8 @@ def main():
             grp0.create_dataset(k, data=v, dtype='float')
         grp0.create_dataset('NChunksMerged',  data=n_chunks_expected, dtype='int')
         grp0.create_dataset('NHalosTotal',    data=n_total,           dtype='int')
-        grp0.create_dataset('NHalosSkipped',  data=total_skipped,     dtype='int')
-        grp0.create_dataset('NHalosIncluded', data=total_included,    dtype='int')
+        for k, v in totals.items():
+            grp0.create_dataset(k, data=v, dtype='int')
         for k, v in attrs_ref.items():
             grp0.attrs[k] = v
 

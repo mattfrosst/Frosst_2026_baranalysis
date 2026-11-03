@@ -26,8 +26,10 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #   1. Pattern speeds (and their errors) are READ from the Omega file and
 #      the bar flag + bar length from the Region file, both matched to
 #      the SOAP catalogue by TrackId -- nothing is recalculated here.
-#      Only galaxies with isbarred == 1 and a finite, non-zero pattern
-#      speed are analysed.
+#      EVERY galaxy in the SOAP selection gets a row in the output (so it
+#      lines up with the Prof / Region / Omega files), but only those
+#      with isbarred == 1 and a finite, non-zero pattern speed are
+#      analysed; the rest are NaN with Status 5 or 6 and cost no I/O.
 #   2. For each barred galaxy, build the enclosed-mass profile M(<r) of
 #      ALL stars + gas + dark matter on a log-spaced radial grid, using
 #      the same cell-batched spatial masking as the fDM / sigma scripts
@@ -57,7 +59,13 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #   2  Vc/R > Omega_p all the way out to R_MAX -> R_CR lies beyond the grid
 #   3  skipped: aperture crosses a cell boundary
 #   4  invalid inputs / non-finite profile
+#   5  not barred (isbarred == 0, or absent from the Region file)  -> all NaN
+#   6  barred, but no valid pattern speed in the Omega file (0 or NaN) -> all NaN
+#      (R_bar_kpc is still filled in for these)
 # ==========================================================================
+
+STATUS_NOT_BARRED = 5
+STATUS_NO_OMEGA   = 6
 
 # --------------------------------------------------------------------------
 # ---- Simulation information ----
@@ -252,24 +260,23 @@ if __name__ == "__main__":
         print(f'  {len(barred_track)} barred in Region file; '
               f'{len(wp_by_track)} of those have a valid pattern speed in the Omega file')
 
-        # ---------------- SOAP selection, restricted to barred galaxies ----------------
+        # ---------------- SOAP selection (ALL galaxies, barred or not) ----------------
         print('SOAP file :', soap_file)
         soap = sw.load(soap_file)
 
         Nstar_subhalo = soap.bound_subhalo.number_of_star_particles
-        lhalo_sel     = np.where((Nstar_subhalo >= Nstar_min) & (Nstar_subhalo <= Nstar_max))[0]
-        track_sel     = np.asarray(soap.input_halos_hbtplus.track_id[lhalo_sel]).astype(np.int64)
+        lhalo_all     = np.where((Nstar_subhalo >= Nstar_min) & (Nstar_subhalo <= Nstar_max))[0]
+        track_all     = np.asarray(soap.input_halos_hbtplus.track_id[lhalo_all]).astype(np.int64)
 
-        is_barred = np.array([t in wp_by_track for t in track_sel.tolist()], dtype=bool)
-        lhalo_all = lhalo_sel[is_barred]
-        print(f'  {len(lhalo_all)} of {len(lhalo_sel)} selected galaxies are barred '
-              f'({len(wp_by_track) - len(lhalo_all)} bar-file entries not found in this selection)')
+        n_wp_all = int(np.sum([t in wp_by_track for t in track_all.tolist()]))
+        print(f'  {len(lhalo_all)} selected galaxies; {n_wp_all} are barred with a valid '
+              f'pattern speed ({len(wp_by_track) - n_wp_all} Omega-file entries not found in this selection)')
 
         chunk_bounds = np.linspace(0, len(lhalo_all), args.n_chunks + 1, dtype=int)
         c0, c1 = chunk_bounds[args.chunk_id], chunk_bounds[args.chunk_id + 1]
         lhalo  = lhalo_all[c0:c1]
         print(f'- snapshot: {snap}   chunk {args.chunk_id}/{args.n_chunks}   '
-              f'barred halos {c0}:{c1} of {len(lhalo_all)} ({len(lhalo)} in this chunk)')
+              f'halos {c0}:{c1} of {len(lhalo_all)} ({len(lhalo)} in this chunk)')
 
         rhalf_stars = soap.bound_subhalo.half_mass_radius_stars[lhalo]
         halo_centre = soap.input_halos.halo_centre[lhalo]
@@ -280,9 +287,17 @@ if __name__ == "__main__":
 
         r50_vals    = rhalf_stars.value
         centre_vals = halo_centre.value
-        omega_p     = np.array([wp_by_track[t]  for t in TrackId.tolist()])  # signed, km/s/kpc
-        omega_err   = np.array([err_by_track[t] for t in TrackId.tolist()])  # km/s/kpc
-        R_bar       = np.array([R1bar_by_track[t] for t in TrackId.tolist()]) * r50_vals  # kpc
+        # NaN for galaxies without a bar / pattern speed
+        is_barred   = np.array([t in barred_track for t in TrackId.tolist()], dtype=bool)
+        has_wp      = np.array([t in wp_by_track  for t in TrackId.tolist()], dtype=bool)
+        omega_p     = np.array([wp_by_track.get(t,  np.nan) for t in TrackId.tolist()])  # signed, km/s/kpc
+        omega_err   = np.array([err_by_track.get(t, np.nan) for t in TrackId.tolist()])  # km/s/kpc
+        R_bar       = np.array([R1bar_by_track.get(t, np.nan) for t in TrackId.tolist()]) * r50_vals  # kpc
+        R_bar[~is_barred] = np.nan
+        n_not_barred = int(np.sum(~is_barred))
+        n_no_omega   = int(np.sum(is_barred & ~has_wp))
+        print(f'  this chunk: {int(has_wp.sum())} to analyse, {n_not_barred} not barred, '
+              f'{n_no_omega} barred without a valid pattern speed')
         n_retro     = int(np.sum(omega_p < 0))
         if n_retro:
             print(f'  WARNING: {n_retro} bars have Omega_p < 0 (counter to the stellar spin); '
@@ -303,22 +318,22 @@ if __name__ == "__main__":
 
         edges = np.geomspace(R_MIN_KPC, R_MAX_KPC, N_RAD)
 
-        # ---------------- assign halos to home cells ----------------
+        # ---------------- assign halos to home cells (barred + valid Omega only) ----------------
         cell_groups = defaultdict(list)
-        n_skipped   = 0
+        in_cell     = np.zeros(len(lhalo), dtype=bool)
         r_comov     = R_MAX_KPC / ScaleFactor
 
-        for i in range(len(lhalo)):
+        for i in np.flatnonzero(has_wp):
             c_comov = centre_vals[i] / ScaleFactor
             idx     = np.floor(c_comov / cell_size_val).astype(int) % n_cells_per_dim
             local   = c_comov - idx * cell_size_val
             if np.all((local - r_comov >= 0.0) & (local + r_comov <= cell_size_val)):
                 cell_groups[tuple(idx)].append((i, centre_vals[i]))
-            else:
-                n_skipped += 1
+                in_cell[i] = True
 
-        n_included = len(lhalo) - n_skipped
-        print(f'  {n_included}/{len(lhalo)} halos fully contained in their home cell '
+        n_included = int(in_cell.sum())
+        n_skipped  = int(has_wp.sum()) - n_included
+        print(f'  {n_included}/{int(has_wp.sum())} halos to analyse fully contained in their home cell '
               f'({n_skipped} skipped), across {len(cell_groups)} occupied cells')
 
         tasks = []
@@ -354,15 +369,16 @@ if __name__ == "__main__":
         R_CR      = np.full(len(lhalo), np.nan)
         status    = np.full(len(lhalo), 4, dtype=int)
         n_cross   = np.zeros(len(lhalo), dtype=int)
-        skipped   = np.all(np.isnan(Menc_tot), axis=1)
-        status[skipped] = 3
+        status[~is_barred]           = STATUS_NOT_BARRED
+        status[is_barred & ~has_wp]  = STATUS_NO_OMEGA
+        status[has_wp & ~in_cell]    = 3
 
         # Range from the statistical error on Omega_p: a faster bar gives a
         # smaller R_CR, so |Omega_p| + err -> lower bound, |Omega_p| - err -> upper.
         R_CR_lo   = np.full(len(lhalo), np.nan)
         R_CR_hi   = np.full(len(lhalo), np.nan)
 
-        for i in np.flatnonzero(~skipped):
+        for i in np.flatnonzero(in_cell):
             wp = abs(omega_p[i])
             R_CR[i], status[i], n_cross[i] = find_corotation(edges, Vc[i], wp)
             R_CR_lo[i] = find_corotation(edges, Vc[i], wp + omega_err[i])[0]
@@ -372,7 +388,7 @@ if __name__ == "__main__":
         Rcal    = R_CR / R_bar                # rate parameter (fast bar: 1 <= Rcal <= 1.4)
 
         print('\n  Status counts: ' + ', '.join(
-            f'{s}: {int(np.sum(status == s))}' for s in range(5)))
+            f'{s}: {int(np.sum(status == s))}' for s in range(7)))
         ok = status == 0
         if np.any(ok):
             print(f'  R_CR (kpc) for status 0: min={np.nanmin(R_CR[ok]):.2f}  '
@@ -396,6 +412,8 @@ if __name__ == "__main__":
             grp0.create_dataset('CellSizeKpc',     data=cell_size_val,      dtype='float')
             grp0.create_dataset('NHalosSkipped',   data=n_skipped,          dtype='int')
             grp0.create_dataset('NHalosIncluded',  data=n_included,         dtype='int')
+            grp0.create_dataset('NHalosNotBarred', data=n_not_barred,       dtype='int')
+            grp0.create_dataset('NHalosNoOmega',   data=n_no_omega,         dtype='int')
             grp0.create_dataset('RMinKpc',         data=R_MIN_KPC,          dtype='float')
             grp0.create_dataset('RMaxKpc',         data=R_MAX_KPC,          dtype='float')
             grp0.attrs['OmegaFile']  = omega_fn
