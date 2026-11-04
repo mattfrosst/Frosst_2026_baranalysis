@@ -115,6 +115,9 @@ N_RAD     = 150     # log-spaced radii between the two
 # G in kpc (km/s)^2 / Msun
 G_KPC_KMS2_MSUN = 4.300917270e-6
 
+# Parallel cell reads. Each worker holds one cell's particles of one species,
+# so memory scales with this number; lower it with --n-workers if a chunk is
+# OOM-killed (dense cells, e.g. around clusters).
 N_WORKERS = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
 
 
@@ -142,6 +145,25 @@ def enclosed_mass(pos, mass, centre, edges):
     hist, _ = np.histogram(r[inside], bins=np.concatenate(([0.0], edges)),
                            weights=m[inside])
     return np.cumsum(hist)
+
+
+def near_any_halo(pos, centres, rmax, block=4_000_000):
+    """
+    Boolean mask: True for particles inside the cube of half-width `rmax`
+    around ANY of `centres`. Works through `pos` in blocks so the
+    temporary arrays stay small (~block x 8 bytes) even for cells holding
+    hundreds of millions of particles.
+    """
+    keep = np.zeros(len(pos), dtype=bool)
+    for s in range(0, len(pos), block):
+        p   = pos[s:s + block]
+        out = keep[s:s + block]
+        for c in centres:
+            sel  = np.abs(p[:, 0] - c[0]) <= rmax
+            sel &= np.abs(p[:, 1] - c[1]) <= rmax
+            sel &= np.abs(p[:, 2] - c[2]) <= rmax
+            out |= sel
+    return keep
 
 
 def circular_velocity(radii, menc):
@@ -194,17 +216,35 @@ def measure_cell_batch(batch):
     except TypeError:
         mask = sw.mask(Swiftfile, spatial_only=True)
     mask.constrain_spatial(region)
-    data = sw.load(Swiftfile, mask=mask)
 
-    species = {}
-    for name, group in (("star", data.stars), ("gas", data.gas), ("dm", data.dark_matter)):
-        pos  = group.coordinates
-        mass = group.masses
+    # Memory: a dense top-level cell can hold >2.5e8 particles. Holding all
+    # three species for the whole cell at once is what got chunks OOM-killed,
+    # so load ONE species at a time, keep only the particles within R_MAX of
+    # one of this cell's halos, and free the full arrays before the next
+    # species. Peak memory is then ~one species' full cell, not all three.
+    centres  = np.array([c for (_, c) in halo_list])
+    rmax     = edges[-1]
+    species  = {}
+    n_loaded = 0
+    for name, ptype in (("star", "stars"), ("gas", "gas"), ("dm", "dark_matter")):
+        # swiftsimio caches each field on its load handle, so use a fresh
+        # handle for coordinates and another for masses: only one full-cell
+        # array is ever alive at a time.
+        data  = sw.load(Swiftfile, mask=mask)
+        pos   = getattr(data, ptype).coordinates
         pos.convert_to_units('kpc')   ; pos.convert_to_physical()
-        mass.convert_to_units('Msun') ; mass.convert_to_physical()
-        species[name] = (pos.value, mass.value)
+        keep  = near_any_halo(pos.value, centres, rmax)
+        p_keep = pos.value[keep]
+        n_loaded += len(keep)
+        del pos, data
 
-    n_loaded = sum(len(v[1]) for v in species.values())
+        data  = sw.load(Swiftfile, mask=mask)
+        mass  = getattr(data, ptype).masses
+        mass.convert_to_units('Msun') ; mass.convert_to_physical()
+        m_keep = mass.value[keep]
+        del mass, data, keep
+
+        species[name] = (p_keep, m_keep)
 
     results = []
     for (local_i, c_phys) in halo_list:
@@ -225,7 +265,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--chunk-id", type=int, default=0)
     parser.add_argument("--n-chunks", type=int, default=1)
+    parser.add_argument("--n-workers", type=int, default=N_WORKERS,
+                        help="parallel cell reads (default: SLURM_CPUS_PER_TASK); "
+                             "lower this if the job runs out of memory")
     args = parser.parse_args()
+    N_WORKERS = max(1, args.n_workers)
 
     for idir, Dir in enumerate(BoxDir):
 
