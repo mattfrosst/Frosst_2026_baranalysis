@@ -27,21 +27,22 @@ DATASETS_HALO = [
     'R_bar_kpc',
     'R_CR_kpc', 'R_CR_lo_kpc', 'R_CR_hi_kpc',
     'R_CR_over_R_bar', 'R_CR_over_r50',
-    'Vc_at_CR_kms',
+    'Vc_at_CR_kms', 'Vc_at_Rbar_kms', 'Omega_c_at_Rbar_kms_per_kpc', 'q_Omega',
     'Status', 'NCrossings',
 ]
 
-# 2-D (halo x radius) profiles, stacked along the halo axis
-DATASETS_PROF = ['Menc_stars', 'Menc_gas', 'Menc_dm', 'Vc_kms']
+# 2-D (halo x radius) profiles, stacked along the halo axis. RadiusKpc is
+# per galaxy (the bar-profile grid Radius_r50 times that galaxy's r50).
+DATASETS_PROF = ['RadiusKpc', 'Menc_stars', 'Menc_gas', 'Menc_dm', 'Vc_kms']
 
 # Header values that must be identical in every chunk
-HEADER_FLOATS = ['Redshift', 'CellSizeKpc', 'RMinKpc', 'RMaxKpc']
+HEADER_FLOATS = ['Redshift', 'CellSizeKpc', 'RMin_r50', 'RMax_r50', 'RCutKpc']
 HEADER_ATTRS  = ['OmegaFile', 'RegionFile']
 
 STATUS_LABELS = {
     0: 'R_CR found',
-    1: 'R_CR < R_MIN',
-    2: 'R_CR > R_MAX',
+    1: 'R_CR < 0.1 r50 (inside the grid)',
+    2: 'R_CR > min(10 r50, 50 kpc) (beyond the grid)',
     3: 'skipped (crosses cell boundary)',
     4: 'invalid inputs',
     5: 'not barred',
@@ -89,10 +90,14 @@ def main():
     first_path = by_id.get(0, next(iter(by_id.values())))
     with h5.File(first_path, 'r') as f:
         hdr                = f['Header']
+        if 'Radius_r50' not in f['Profiles'] or 'RCutKpc' not in hdr:
+            sys.exit(f"{first_path} was made by an older Calculate_Bar_Rcorot.py "
+                      f"(fixed 1-50 kpc grid, not the bar-profile grid). "
+                      f"Re-run all chunks before merging.")
         n_chunks_expected  = int(hdr['NChunks'][()])
         header_ref         = {k: float(hdr[k][()]) for k in HEADER_FLOATS}
         attrs_ref          = {k: attr_str(hdr.attrs[k]) for k in HEADER_ATTRS}
-        radius_ref         = f['Profiles']['RadiusKpc'][()]
+        radius_ref         = f['Profiles']['Radius_r50'][()]   # the shared bar-profile grid
 
     missing = [cid for cid in range(n_chunks_expected) if cid not in by_id]
     if missing:
@@ -148,8 +153,8 @@ def main():
                 totals[k] += int(hdr[k][()])
 
             prof = f['Profiles']
-            if not np.array_equal(prof['RadiusKpc'][()], radius_ref):
-                sys.exit(f"Chunk {cid} has a different radial grid (RadiusKpc) "
+            if not np.array_equal(prof['Radius_r50'][()], radius_ref):
+                sys.exit(f"Chunk {cid} has a different radial grid (Radius_r50) "
                           f"from chunk 0. Aborting -- profiles can't be stacked.")
 
             grp  = f['HaloData']
@@ -217,7 +222,7 @@ def main():
             grp1.create_dataset(name, data=arr, dtype=arr.dtype)
 
         grp2 = out.create_group("Profiles")
-        grp2.create_dataset('RadiusKpc', data=radius_ref, dtype=radius_ref.dtype)
+        grp2.create_dataset('Radius_r50', data=radius_ref, dtype=radius_ref.dtype)
         for name, arr in merged_prof.items():
             grp2.create_dataset(name, data=arr, dtype=arr.dtype)
 

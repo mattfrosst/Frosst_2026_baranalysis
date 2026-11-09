@@ -31,15 +31,20 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #      with isbarred == 1 and a finite, non-zero pattern speed are
 #      analysed; the rest are NaN with Status 5 or 6 and cost no I/O.
 #   2. For each barred galaxy, build the enclosed-mass profile M(<r) of
-#      ALL stars + gas + dark matter on a log-spaced radial grid, using
-#      the same cell-batched spatial masking as the fDM / sigma scripts
-#      (read each SWIFT top-level cell once, share it between halos).
+#      ALL stars + gas + dark matter on EXACTLY the radial grid of the bar
+#      profiles (Calculate_Bar_Prof.py): edges 10**linspace(-1,1,41) r50,
+#      i.e. 0.1-10 r50 in 0.05 dex steps, within the same 50 kpc aperture
+#      (grid points beyond 50 kpc are NaN). Particles are read with
+#      cell-batched spatial masking (each SWIFT top-level cell read once).
 #   3. Vc(r) = sqrt(G M(<r) / r)   (spherical approximation).
-#   4. Find where Vc(r)/r drops through Omega_p (linear interpolation in
-#      log r). Status codes below say what happened for each galaxy.
-#      R_CR is also solved at |Omega_p| -/+ its statistical error to give
-#      a range, and the rate parameter Rcal = R_CR / R_bar is written out
-#      (R_bar = R1Bar_value * r50 from the Region file).
+#   4. Find where Vc(r)/r drops through Omega_p (ln Omega_c interpolated
+#      linearly in ln r). Status codes below say what happened for each
+#      galaxy. R_CR is also solved at |Omega_p| -/+ its statistical error
+#      to give a range, and the rate parameter Rcal = R_CR / R_bar is
+#      written out (R_bar = R1Bar_value * r50 from the Region file; it is a
+#      bar-profile bin edge and so lies exactly on the grid).
+#   5. Omega_c(R_bar) = Vc(R_bar)/R_bar and q = sigma_Omega / Omega_c(R_bar)
+#      are written out, so every downstream script uses the same q.
 #
 # Known simplifications:
 #   - Vc is the SPHERICAL estimate, not the in-plane radial force of the
@@ -49,14 +54,16 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #     force-based calculation.
 #   - Black-hole particles are not included (negligible mass on these
 #     scales; add data.black_holes if you want strict completeness).
-#   - Halos whose R_MAX aperture crosses a SWIFT cell boundary are
-#     skipped (status 3, NaN), as in the previous cell-batched scripts.
+#   - Halos whose aperture, min(10 r50, 50 kpc), crosses a SWIFT cell
+#     boundary are skipped (status 3, NaN), as in the previous cell-batched
+#     scripts. (The bar profiles use a periodic tree, so they DO include these.)
 #
 # STATUS CODES (returned as HaloData/Status):
 #   0  OK: co-rotation radius found inside the grid
-#   1  Vc/R < Omega_p already at R_MIN  -> R_CR is inside the radius we can
-#      trust (a very fast bar, or a resolution-limited centre)
-#   2  Vc/R > Omega_p all the way out to R_MAX -> R_CR lies beyond the grid
+#   1  Vc/R < Omega_p already at the innermost grid point (0.1 r50)
+#      -> R_CR is inside the grid (a very fast bar, or an unresolved centre)
+#   2  Vc/R > Omega_p all the way out to the last grid point inside the
+#      aperture, min(10 r50, 50 kpc) -> R_CR lies beyond the grid
 #   3  skipped: aperture crosses a cell boundary
 #   4  invalid inputs / non-finite profile
 #   5  not barred (isbarred == 0, or absent from the Region file)  -> all NaN
@@ -107,10 +114,21 @@ def read_halodata(fn, names):
         return {n: np.asarray(grp[n][()]) for n in names}
 
 # --------------------------------------------------------------------------
-# ---- Radial grid for the rotation curve (PHYSICAL kpc) ----
-R_MIN_KPC = 1.0     # innermost radius trusted; set to a few softening lengths
-R_MAX_KPC = 50.0    # outermost radius; also the aperture that must fit in one cell
-N_RAD     = 150     # log-spaced radii between the two
+# ---- Radial grid: IDENTICAL to Calculate_Bar_Prof.py ----
+# Bin edges in units of each galaxy's stellar half-mass radius r50:
+#   xbin_linear = [0, 10**linspace(-1, 1, 41)]  ->  0, 0.1 r50 ... 10 r50 (0.05 dex)
+# M(<r) is evaluated at the 41 non-zero edges, so every bar-profile bin edge
+# (including R0Bar / R1Bar from Calculate_Bar_Region.py) is a point on this grid.
+NPROF        = 41
+X_RANGE      = (-1, 1)
+XBIN_LINEAR  = np.append(0, 10**np.linspace(X_RANGE[0], X_RANGE[1], NPROF))   # [r50]
+RADII_R50    = XBIN_LINEAR[1:]          # radii at which M(<r) and Vc are evaluated [r50]
+N_RAD        = len(RADII_R50)
+
+# Aperture: the same 50 kpc sphere used for the bar profiles (Rcut in
+# Calculate_Bar_Prof.py). Grid points beyond it are NaN, as M(<r) would be
+# incomplete there (and the bar-profile bins beyond 50 kpc are empty too).
+RCUT_KPC     = 50.0
 
 # G in kpc (km/s)^2 / Msun
 G_KPC_KMS2_MSUN = 4.300917270e-6
@@ -150,20 +168,32 @@ def enclosed_mass(pos, mass, centre, edges):
 def near_any_halo(pos, centres, rmax, block=4_000_000):
     """
     Boolean mask: True for particles inside the cube of half-width `rmax`
-    around ANY of `centres`. Works through `pos` in blocks so the
-    temporary arrays stay small (~block x 8 bytes) even for cells holding
-    hundreds of millions of particles.
+    (a scalar, or one value per centre) around ANY of `centres`. Works
+    through `pos` in blocks so the temporary arrays stay small
+    (~block x 8 bytes) even for cells holding hundreds of millions of particles.
     """
+    rmax = np.broadcast_to(np.asarray(rmax, dtype=float), (len(centres),))
     keep = np.zeros(len(pos), dtype=bool)
     for s in range(0, len(pos), block):
         p   = pos[s:s + block]
         out = keep[s:s + block]
-        for c in centres:
-            sel  = np.abs(p[:, 0] - c[0]) <= rmax
-            sel &= np.abs(p[:, 1] - c[1]) <= rmax
-            sel &= np.abs(p[:, 2] - c[2]) <= rmax
+        for c, rm in zip(centres, rmax):
+            sel  = np.abs(p[:, 0] - c[0]) <= rm
+            sel &= np.abs(p[:, 1] - c[1]) <= rm
+            sel &= np.abs(p[:, 2] - c[2]) <= rm
             out |= sel
     return keep
+
+
+def halo_grid(r50_kpc, rcut_kpc=RCUT_KPC):
+    """
+    This galaxy's radial grid in kpc (the bar-profile edges times r50), and
+    the number of leading grid points that lie inside the aperture. Points
+    beyond the aperture are left out of the measurement (NaN in the output).
+    """
+    radii = RADII_R50 * r50_kpc
+    n_in  = int(np.searchsorted(radii, rcut_kpc * (1 + 1e-12), side='right'))
+    return radii, n_in
 
 
 def circular_velocity(radii, menc):
@@ -175,35 +205,52 @@ def find_corotation(radii, vc, omega_p):
     """
     Solve Vc(R)/R = omega_p on the grid. Returns
     (R_CR [kpc or nan], status, n_crossings).
-    Uses the FIRST downward crossing from small radius, with linear
-    interpolation in log r. n_crossings counts every sign change of
-    Vc/R - omega_p, so you can flag galaxies with a non-monotonic curve.
+
+    Only grid points with a finite, positive Vc are used: points beyond the
+    aperture are NaN, and an innermost point can have Vc = 0 if no particle
+    lies within it. Uses the FIRST downward crossing from small radius,
+    interpolating ln(Vc/R) linearly in ln R (exact for a power-law rotation
+    curve, which matters on the 0.05 dex bar-profile grid). n_crossings
+    counts every sign change of Vc/R - omega_p, to flag non-monotonic curves.
     """
-    f = vc / radii - omega_p
-    if (not np.all(np.isfinite(f))) or (not np.isfinite(omega_p)) or omega_p <= 0:
+    if (not np.isfinite(omega_p)) or omega_p <= 0:
         return np.nan, 4, 0
+    ok = np.isfinite(vc) & (vc > 0)
+    if ok.sum() < 2:
+        return np.nan, 4, 0
+    r  = radii[ok]
+    g  = np.log(vc[ok] / r) - np.log(omega_p)   # ln Omega_c - ln Omega_p
 
-    n_cross = int(np.sum((f[:-1] >= 0) != (f[1:] >= 0)))
+    n_cross = int(np.sum((g[:-1] >= 0) != (g[1:] >= 0)))
 
-    if f[0] <= 0:
+    if g[0] <= 0:
         return np.nan, 1, n_cross
-    neg = np.flatnonzero(f < 0)
+    neg = np.flatnonzero(g < 0)
     if neg.size == 0:
         return np.nan, 2, n_cross
 
-    j      = neg[0]                     # first point below omega_p; f[j-1] >= 0
-    lr0    = np.log(radii[j - 1])
-    lr1    = np.log(radii[j])
-    t      = f[j - 1] / (f[j - 1] - f[j])
+    j      = neg[0]                     # first point below omega_p; g[j-1] >= 0
+    lr0    = np.log(r[j - 1])
+    lr1    = np.log(r[j])
+    t      = g[j - 1] / (g[j - 1] - g[j])
     return float(np.exp(lr0 + t * (lr1 - lr0))), 0, n_cross
+
+
+def value_at_radius(radii, values, r):
+    """Log-log interpolation of a positive profile at radius r (exact on grid points)."""
+    ok = np.isfinite(values) & (values > 0)
+    if (not np.isfinite(r)) or r <= 0 or ok.sum() < 2 or r < radii[ok][0] or r > radii[ok][-1]:
+        return np.nan
+    return float(np.exp(np.interp(np.log(r), np.log(radii[ok]), np.log(values[ok]))))
 
 
 # ==========================================================================
 # Worker: one SWIFT top-level cell -> enclosed-mass profiles of its halos
 # ==========================================================================
 def measure_cell_batch(batch):
-    (Swiftfile, cell_lo_comov, cell_hi_comov, halo_list, edges) = batch
-    # halo_list: list of (local_index, c_phys[3])
+    (Swiftfile, cell_lo_comov, cell_hi_comov, halo_list) = batch
+    # halo_list: list of (local_index, c_phys[3], edges_kpc) where edges_kpc are
+    # this galaxy's grid points inside the aperture (the last one sets its extent)
 
     import numpy      as np
     import unyt
@@ -219,11 +266,11 @@ def measure_cell_batch(batch):
 
     # Memory: a dense top-level cell can hold >2.5e8 particles. Holding all
     # three species for the whole cell at once is what got chunks OOM-killed,
-    # so load ONE species at a time, keep only the particles within R_MAX of
-    # one of this cell's halos, and free the full arrays before the next
+    # so load ONE species at a time, keep only the particles within each
+    # halo's outermost grid radius, and free the full arrays before the next
     # species. Peak memory is then ~one species' full cell, not all three.
-    centres  = np.array([c for (_, c) in halo_list])
-    rmax     = edges[-1]
+    centres  = np.array([c for (_, c, _) in halo_list])
+    rmax     = np.array([e[-1] for (_, _, e) in halo_list])
     species  = {}
     n_loaded = 0
     for name, ptype in (("star", "stars"), ("gas", "gas"), ("dm", "dark_matter")):
@@ -247,7 +294,7 @@ def measure_cell_batch(batch):
         species[name] = (p_keep, m_keep)
 
     results = []
-    for (local_i, c_phys) in halo_list:
+    for (local_i, c_phys, edges) in halo_list:
         prof = {name: enclosed_mass(p, m, c_phys, edges)
                 for name, (p, m) in species.items()}
         results.append((local_i, prof["star"], prof["gas"], prof["dm"]))
@@ -358,21 +405,29 @@ if __name__ == "__main__":
         n_cells_per_dim = int(round(float(boxsize_comoving.value[0]) / cell_size_val))
 
         print(f'  Cell size: {cell_size_val:.2f} kpc ({n_cells_per_dim}^3 cells); '
-              f'profile grid {R_MIN_KPC}-{R_MAX_KPC} kpc, {N_RAD} radii; {N_WORKERS} workers')
+              f'bar-profile grid {RADII_R50[0]:.1f}-{RADII_R50[-1]:.0f} r50 ({N_RAD} radii), '
+              f'aperture {RCUT_KPC:.0f} kpc; {N_WORKERS} workers')
 
-        edges = np.geomspace(R_MIN_KPC, R_MAX_KPC, N_RAD)
+        # per-galaxy grid in kpc (bar-profile edges x r50); M(<r) and Vc are NaN beyond the aperture
+        RadiusKpc = RADII_R50[None, :] * r50_vals[:, None]
 
         # ---------------- assign halos to home cells (barred + valid Omega only) ----------------
+        # Each galaxy's aperture is its outermost grid point inside RCUT_KPC,
+        # i.e. min(10 r50, 50 kpc), and that is what must fit in one cell.
         cell_groups = defaultdict(list)
         in_cell     = np.zeros(len(lhalo), dtype=bool)
-        r_comov     = R_MAX_KPC / ScaleFactor
 
         for i in np.flatnonzero(has_wp):
+            radii_i, n_in = halo_grid(r50_vals[i])
+            if n_in < 2:
+                continue                                  # too few grid points inside the aperture
+            edges_i = radii_i[:n_in]
+            r_comov = edges_i[-1] / ScaleFactor
             c_comov = centre_vals[i] / ScaleFactor
             idx     = np.floor(c_comov / cell_size_val).astype(int) % n_cells_per_dim
             local   = c_comov - idx * cell_size_val
             if np.all((local - r_comov >= 0.0) & (local + r_comov <= cell_size_val)):
-                cell_groups[tuple(idx)].append((i, centre_vals[i]))
+                cell_groups[tuple(idx)].append((i, centre_vals[i], edges_i))
                 in_cell[i] = True
 
         n_included = int(in_cell.sum())
@@ -383,7 +438,7 @@ if __name__ == "__main__":
         tasks = []
         for idx, halo_list in cell_groups.items():
             cell_lo = np.array(idx) * cell_size_val
-            tasks.append((Swiftfile, cell_lo, cell_lo + cell_size_val, halo_list, edges))
+            tasks.append((Swiftfile, cell_lo, cell_lo + cell_size_val, halo_list))
 
         Menc_star = np.full((len(lhalo), N_RAD), np.nan)
         Menc_gas  = np.full((len(lhalo), N_RAD), np.nan)
@@ -396,9 +451,10 @@ if __name__ == "__main__":
             for fut in as_completed(futures):
                 results, n_loaded = fut.result()
                 for (local_i, ms, mg, md) in results:
-                    Menc_star[local_i] = ms
-                    Menc_gas[local_i]  = mg
-                    Menc_dm[local_i]   = md
+                    n_in = len(ms)                       # grid points inside the aperture
+                    Menc_star[local_i, :n_in] = ms
+                    Menc_gas[local_i,  :n_in] = mg
+                    Menc_dm[local_i,   :n_in] = md
                 ndone_halos += len(results)
                 max_n_loaded = max(max_n_loaded, n_loaded)
                 ndone_cells += 1
@@ -408,7 +464,7 @@ if __name__ == "__main__":
 
         # ---------------- solve for the co-rotation radius ----------------
         Menc_tot = Menc_star + Menc_gas + Menc_dm
-        Vc       = circular_velocity(edges[None, :], Menc_tot)
+        Vc       = circular_velocity(RadiusKpc, Menc_tot)
 
         R_CR      = np.full(len(lhalo), np.nan)
         status    = np.full(len(lhalo), 4, dtype=int)
@@ -422,14 +478,22 @@ if __name__ == "__main__":
         R_CR_lo   = np.full(len(lhalo), np.nan)
         R_CR_hi   = np.full(len(lhalo), np.nan)
 
+        # Circular speed / angular frequency at the bar end, and the pattern-speed
+        # quality parameter q = sigma_Omega / Omega_c(R_bar). R1Bar_value is a
+        # bar-profile bin edge, so R_bar lies exactly on this grid.
+        Vc_bar    = np.full(len(lhalo), np.nan)
+
         for i in np.flatnonzero(in_cell):
             wp = abs(omega_p[i])
-            R_CR[i], status[i], n_cross[i] = find_corotation(edges, Vc[i], wp)
-            R_CR_lo[i] = find_corotation(edges, Vc[i], wp + omega_err[i])[0]
-            R_CR_hi[i] = find_corotation(edges, Vc[i], wp - omega_err[i])[0]
+            R_CR[i], status[i], n_cross[i] = find_corotation(RadiusKpc[i], Vc[i], wp)
+            R_CR_lo[i] = find_corotation(RadiusKpc[i], Vc[i], wp + omega_err[i])[0]
+            R_CR_hi[i] = find_corotation(RadiusKpc[i], Vc[i], wp - omega_err[i])[0]
+            Vc_bar[i]  = value_at_radius(RadiusKpc[i], Vc[i], R_bar[i])
 
-        Vc_CR   = abs(omega_p) * R_CR         # = Vc at R_CR by construction, km/s
-        Rcal    = R_CR / R_bar                # rate parameter (fast bar: 1 <= Rcal <= 1.4)
+        Vc_CR    = abs(omega_p) * R_CR        # = Vc at R_CR by construction, km/s
+        Rcal     = R_CR / R_bar               # rate parameter (fast bar: 1 <= Rcal <= 1.4)
+        Omc_bar  = Vc_bar / R_bar             # Omega_c(R_bar), km/s/kpc
+        q_Omega  = omega_err / Omc_bar        # pattern-speed quality (see paper text)
 
         print('\n  Status counts: ' + ', '.join(
             f'{s}: {int(np.sum(status == s))}' for s in range(7)))
@@ -458,8 +522,9 @@ if __name__ == "__main__":
             grp0.create_dataset('NHalosIncluded',  data=n_included,         dtype='int')
             grp0.create_dataset('NHalosNotBarred', data=n_not_barred,       dtype='int')
             grp0.create_dataset('NHalosNoOmega',   data=n_no_omega,         dtype='int')
-            grp0.create_dataset('RMinKpc',         data=R_MIN_KPC,          dtype='float')
-            grp0.create_dataset('RMaxKpc',         data=R_MAX_KPC,          dtype='float')
+            grp0.create_dataset('RMin_r50',        data=RADII_R50[0],       dtype='float')
+            grp0.create_dataset('RMax_r50',        data=RADII_R50[-1],      dtype='float')
+            grp0.create_dataset('RCutKpc',         data=RCUT_KPC,           dtype='float')
             grp0.attrs['OmegaFile']  = omega_fn
             grp0.attrs['RegionFile'] = region_fn
 
@@ -474,10 +539,14 @@ if __name__ == "__main__":
             grp1.create_dataset('R_CR_over_R_bar', data=Rcal,               dtype='float')
             grp1.create_dataset('R_CR_over_r50',   data=R_CR / r50_vals,    dtype='float')
             grp1.create_dataset('Vc_at_CR_kms',    data=Vc_CR,              dtype='float')
+            grp1.create_dataset('Vc_at_Rbar_kms',  data=Vc_bar,             dtype='float')
+            grp1.create_dataset('Omega_c_at_Rbar_kms_per_kpc', data=Omc_bar, dtype='float')
+            grp1.create_dataset('q_Omega',         data=q_Omega,            dtype='float')
             grp1.create_dataset('Status',          data=status,             dtype='int')
             grp1.create_dataset('NCrossings',      data=n_cross,            dtype='int')
 
-            grp2.create_dataset('RadiusKpc',       data=edges,              dtype='float')
+            grp2.create_dataset('Radius_r50',      data=RADII_R50,          dtype='float')  # same edges as the bar profiles
+            grp2.create_dataset('RadiusKpc',       data=RadiusKpc,          dtype='float')  # per galaxy: Radius_r50 * r50
             grp2.create_dataset('Menc_stars',      data=Menc_star,          dtype='float')
             grp2.create_dataset('Menc_gas',        data=Menc_gas,           dtype='float')
             grp2.create_dataset('Menc_dm',         data=Menc_dm,            dtype='float')
