@@ -108,6 +108,9 @@ N_RHO              = 20                          # neighbours in the smoothed ba
 NeighbourMassRatio = 10**(-0.2)                  # neighbour no more than 0.5 mag fainter
 KNN_OUT            = (3, 5, 10, 20)              # k-th neighbour distances to write out
 
+MSUN_CGS     = 1.98841e33        # g
+MPC_CGS      = 3.08567758e24     # cm
+
 N_WORKERS    = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
 
 
@@ -364,9 +367,17 @@ if __name__ == "__main__":
         fsub      = np.asarray(fsub.value,   dtype=np.float64)
 
         # --- cosmology: critical density (physical) and mean matter density (comoving)
-        cosmo         = soap.metadata.cosmology
-        rho_crit      = float(cosmo.critical_density(Redshift).to('Msun/Mpc**3').value)   # physical
-        rho_matter    = float(cosmo.Om0 * cosmo.critical_density0.to('Msun/Mpc**3').value) # comoving
+        # Read straight from the SOAP file's Cosmology / Units groups (SWIFT
+        # internal units), as soap.metadata.cosmology does not exist in every
+        # swiftsimio version. Omega_m is the z = 0 value (CDM + baryons).
+        with h5.File(soap_file, 'r') as f:
+            cos       = f['Cosmology'].attrs
+            unit      = f['Units'].attrs
+            to_Msun_Mpc3 = (float(unit['Unit mass in cgs (U_M)'][0]) / MSUN_CGS) \
+                         / (float(unit['Unit length in cgs (U_L)'][0]) / MPC_CGS)**3
+            rho_crit   = float(cos['Critical density [internal units]'][0]) * to_Msun_Mpc3   # physical
+            rho_matter = float(cos['Omega_m'][0]) * to_Msun_Mpc3 \
+                       * float(cos['Critical density at redshift zero [internal units]'][0])  # comoving
 
         # --- tracer sample and its box-mean densities (comoving)
         pos_tr        = pos[trc]
