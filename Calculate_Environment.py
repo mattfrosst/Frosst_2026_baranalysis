@@ -42,6 +42,14 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #       Host_Msat_star_R200   their summed stellar mass
 #       Host_fsat_star_R200   Msat_star / (Msat_star + Mstar of the central)
 #     NaN / -1 where there is no host (hostless satellites) or no R200.
+#       SnapshotOfLastIsolation   (HBT+) latest snapshot at which the galaxy was
+#                             a central: for a satellite, the snapshot just
+#                             before it (last) fell into a host, so the time
+#                             since then is its time since infall. Equal to
+#                             the current snapshot for centrals, or -1 for
+#                             those that have always been centrals. Snapshot
+#                             numbers count every output of the run (snapshots
+#                             and snipshots), i.e. the rows of output_list.txt.
 #
 #  2. FIXED-APERTURE DENSITIES, spheres of ApertureRadii (1, 5, 10 cMpc)
 #       N_in_R, Mstar_in_R, Mbound_in_R        raw sums over the tracers
@@ -356,6 +364,12 @@ if __name__ == "__main__":
         r200      = soap.spherical_overdensity_200_crit.soradius[need]
         fsub      = soap.spherical_overdensity_200_crit.mass_fraction_satellites[need]
         TrackId   = np.asarray(soap.input_halos_hbtplus.track_id[need].value).astype(np.int64)
+        # latest snapshot at which the subhalo was a central; stored unsigned in SOAP,
+        # with "-1" (always a central) as the largest unsigned integer
+        iso_raw   = np.asarray(soap.input_halos_hbtplus.snapshot_of_last_isolation[need].value)
+        never_sat = iso_raw > 1e9
+        SnapIso   = np.where(never_sat, 0, iso_raw).astype(np.int64)
+        SnapIso[never_sat] = -1
 
         # --- convert Units (lengths: comoving Mpc; masses: Msun)
         centre.convert_to_units('Mpc')  ; centre.convert_to_comoving()
@@ -505,6 +519,7 @@ if __name__ == "__main__":
             grp1.create_dataset('is_central',           data=is_central[tgt],    dtype='int')
             grp1.create_dataset('is_tracer',            data=self_idx >= 0,      dtype='int')
             grp1.create_dataset('StellarMass',          data=mstar_tg,           dtype='float')
+            grp1.create_dataset('SnapshotOfLastIsolation', data=SnapIso[tgt],    dtype='int')
 
             # --- 1. host halo ---
             grp1.create_dataset('Host_TrackId',         data=Host_TrackId,       dtype='int')
