@@ -9,7 +9,8 @@ import swiftsimio                   as     sw
 import scipy.optimize               as     sp_opt
 import os
 import sys
-import time 
+import argparse
+import time
 import itertools
 import warnings
 import matplotlib.pylab             as plt
@@ -20,17 +21,19 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #Fiducial_test
 
 # --- Local test path ---
-BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
-BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#BasePath     = "/Users/23229092/Documents/COLIBRE/" ; SnapBase = "colibre_"
+#BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
+#OutBase      = "/Users/23229092/Documents/COLIBRE/Frosst_2026_Outputs/"
 
 # --- COSMA paths ---
-#BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
+BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
+OutBase      = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"
 #BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L050_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 123
 #BoxDir       = ["L050_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/" ; snap = 127
 #BoxDir       = ["L100_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L100_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/"  ; snap = 127
-#BoxDir       = ["L200_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 93#95#99#101#103#105#107#109#111#113#115#117#119#121#123#125#58#62#66#72#80#88#97#112#56#60#64#68#76#84#92#102#127
+BoxDir       = ["L200_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127 #93#95#99#101#103#105#107#109#111#113#115#117#119#121#123#125#58#62#66#72#80#88#97#112#56#60#64#68#76#84#92#102#127
 #BoxDir       = ["L200_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/"  ; snap = 127
 
 #BoxDir       = ["L025_m5/"]                         ; RunDir   = "THERMAL_AGN_m5/" ; snap = 127
@@ -38,11 +41,18 @@ BoxDir       = ["L012_m6/"]                         ; RunDir   = "THERMAL_AGN_m6
 #BoxDir       = ["L025_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/" ; snap = 127
 
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
-fname        = "Gal_Table__"
+fname        = "Gal_Table_"
 
 # ---- analysis Information ----
 Nstar_min    = 5e3  # Minimum number of stellar particles
 Nstar_max    = 1e10 # Maximum number of stellar particles
+
+# ---- Runtime arguments (the snapshot set above is the default) ----
+parser = argparse.ArgumentParser()
+parser.add_argument("--snap", type=int, default=snap,
+                    help=f"snapshot number to analyse (default: {snap}, set at the top of this script)")
+args = parser.parse_args()
+snap = args.snap
 
 for     idir,  Dir  in enumerate(BoxDir):
 
@@ -263,9 +273,9 @@ for     idir,  Dir  in enumerate(BoxDir):
     angtot_gas_3kpc     = np.linalg.norm(angJ_gas_3kpc,    axis=1)
     
     # --- Write to hdf5
-    fn = BasePath+Dir[:-1]+"_OutPuts/"+RunDir+fname+ext3+".hdf5"                  #Local path
-    #fn = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"+BoxDir[0]+RunDir+fname+ext3+".hdf5" #COSMA path
+    fn = OutBase+Dir+RunDir+fname+ext3+".hdf5"
     print('\n Writing to:',fn)
+    os.makedirs(os.path.dirname(fn), exist_ok=True)
 
     output  = h5.File(fn, "w")
     grp0    = output.create_group("Header")
