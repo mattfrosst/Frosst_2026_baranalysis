@@ -287,8 +287,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-workers", type=int, default=N_WORKERS,
                         help="threads for the kd-tree queries (default: SLURM_CPUS_PER_TASK)")
+    parser.add_argument("--snap", type=int, default=snap,
+                        help=f"snapshot number to analyse (default: {snap}, set at the top of this script)")
     args = parser.parse_args()
     N_WORKERS = max(1, args.n_workers)
+    snap      = args.snap
 
     for idir, Dir in enumerate(BoxDir):
 
