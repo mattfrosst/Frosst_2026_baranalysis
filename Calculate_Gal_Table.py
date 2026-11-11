@@ -47,6 +47,36 @@ fname        = "Gal_Table_"
 Nstar_min    = 5e3  # Minimum number of stellar particles
 Nstar_max    = 1e10 # Maximum number of stellar particles
 
+# --------------------------------------------------------------------------
+# ---- Memory-friendly SOAP reads ----
+# swiftsimio loads a SOAP column for *every* halo the first time it is accessed and keeps it in
+# memory until it is deleted. Reading ~130 full L200 columns this way exceeds the job's memory,
+# so each column is read, cut down to the selected galaxies, and freed straight away.
+def free_column(group, name):
+    try:
+        delattr(group, name)               # swiftsimio's deleter resets its cached copy
+    except AttributeError:
+        setattr(group, '_' + name, None)   # fallback: clear the cache attribute directly
+
+def read_selected(group, name, idx):
+    full = getattr(group, name)
+    sel  = full[idx]
+    del full
+    free_column(group, name)
+    return sel
+
+_lum_cache = {}
+def read_lum(soap, group_name):
+    # (N_selected, 9) stellar luminosities, read once per aperture
+    if group_name not in _lum_cache:
+        _lum_cache[group_name] = read_selected(getattr(soap, group_name), 'stellar_luminosity', lhalo)
+    return _lum_cache[group_name]
+
+def peak_mem_gb():
+    import resource
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / 1e9 if sys.platform == 'darwin' else peak / 1e6   # bytes on macOS, kB on Linux
+
 # ---- Runtime arguments (the snapshot set above is the default) ----
 parser = argparse.ArgumentParser()
 parser.add_argument("--snap", type=int, default=snap,
@@ -72,6 +102,7 @@ for     idir,  Dir  in enumerate(BoxDir):
             
     # --- find all halos with Nstar_max >= Nstar >= Nstar_min (Using SOAP catalogs)
     lhalo        = np.where((Nstar_subhalo >= Nstar_min) & (Nstar_subhalo <= Nstar_max))[0]
+    del Nstar_subhalo ; free_column(soap.bound_subhalo, 'number_of_star_particles')
 
     print('- snapshot        :',snap)
     print('  Number of galaxies selected: ',len(lhalo)) 
@@ -80,116 +111,118 @@ for     idir,  Dir  in enumerate(BoxDir):
     
     # --- Get some properties of the galaxies from SOAP
     # --- Bound subhalo: galaxy properties
-    rhalf_stars       = soap.bound_subhalo.half_mass_radius_stars[lhalo]
-    rhalf_gas         = soap.bound_subhalo.half_mass_radius_gas[lhalo]
-    nstar             = soap.bound_subhalo.number_of_star_particles[lhalo]
-    ngas              = soap.bound_subhalo.number_of_gas_particles[lhalo]
-    mean_stellar_age  = soap.bound_subhalo.mass_weighted_mean_stellar_age[lhalo]
-    kappa_co_allstars = soap.bound_subhalo.kappa_corot_stars[lhalo]
+    rhalf_stars       = read_selected(soap.bound_subhalo, 'half_mass_radius_stars', lhalo)
+    rhalf_gas         = read_selected(soap.bound_subhalo, 'half_mass_radius_gas', lhalo)
+    nstar             = read_selected(soap.bound_subhalo, 'number_of_star_particles', lhalo)
+    ngas              = read_selected(soap.bound_subhalo, 'number_of_gas_particles', lhalo)
+    mean_stellar_age  = read_selected(soap.bound_subhalo, 'mass_weighted_mean_stellar_age', lhalo)
+    kappa_co_allstars = read_selected(soap.bound_subhalo, 'kappa_corot_stars', lhalo)
 
     # --- Exclusive sphere 50kpc: galaxy properties
-    mDM               = soap.exclusive_sphere_50kpc.dark_matter_mass[lhalo]
-    mstar             = soap.exclusive_sphere_50kpc.stellar_mass[lhalo]
-    mgas              = soap.exclusive_sphere_50kpc.gas_mass[lhalo]
-    sf_mgas           = soap.exclusive_sphere_50kpc.star_forming_gas_mass[lhalo]
-    mHI               = soap.exclusive_sphere_50kpc.atomic_hydrogen_mass[lhalo]
-    mH2               = soap.exclusive_sphere_50kpc.molecular_hydrogen_mass[lhalo]
-    DT                = soap.exclusive_sphere_50kpc.disc_to_total_stellar_mass_fraction[lhalo]
-    SFR               = soap.exclusive_sphere_50kpc.star_formation_rate[lhalo]
-    kappa_co_stars    = soap.exclusive_sphere_50kpc.kappa_corot_stars[lhalo]
+    mDM               = read_selected(soap.exclusive_sphere_50kpc, 'dark_matter_mass', lhalo)
+    mstar             = read_selected(soap.exclusive_sphere_50kpc, 'stellar_mass', lhalo)
+    mgas              = read_selected(soap.exclusive_sphere_50kpc, 'gas_mass', lhalo)
+    sf_mgas           = read_selected(soap.exclusive_sphere_50kpc, 'star_forming_gas_mass', lhalo)
+    mHI               = read_selected(soap.exclusive_sphere_50kpc, 'atomic_hydrogen_mass', lhalo)
+    mH2               = read_selected(soap.exclusive_sphere_50kpc, 'molecular_hydrogen_mass', lhalo)
+    DT                = read_selected(soap.exclusive_sphere_50kpc, 'disc_to_total_stellar_mass_fraction', lhalo)
+    SFR               = read_selected(soap.exclusive_sphere_50kpc, 'star_formation_rate', lhalo)
+    kappa_co_stars    = read_selected(soap.exclusive_sphere_50kpc, 'kappa_corot_stars', lhalo)
 
     # -- luminosities are in the following order: u, g, r, i, z, Y, J, H, K
-    Lstar_g           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,1]
-    Lstar_r           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,2]
-    Lstar_z           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,4]
-    Lstar_Y           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,5]
+    Lstar_g           = read_lum(soap, 'inclusive_sphere_50kpc')[:, 1]
+    Lstar_r           = read_lum(soap, 'inclusive_sphere_50kpc')[:, 2]
+    Lstar_z           = read_lum(soap, 'inclusive_sphere_50kpc')[:, 4]
+    Lstar_Y           = read_lum(soap, 'inclusive_sphere_50kpc')[:, 5]
     
     # -- Inclusive sphere 50kpc: angular momentum
-    angJ_stars        = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo]
-    angJ_gas          = soap.inclusive_sphere_50kpc.angular_momentum_gas[lhalo]
-    angJ_baryons      = soap.inclusive_sphere_50kpc.angular_momentum_baryons[lhalo]
+    angJ_stars        = read_selected(soap.inclusive_sphere_50kpc, 'angular_momentum_stars', lhalo)
+    angJ_gas          = read_selected(soap.inclusive_sphere_50kpc, 'angular_momentum_gas', lhalo)
+    angJ_baryons      = read_selected(soap.inclusive_sphere_50kpc, 'angular_momentum_baryons', lhalo)
 
     # --- Exclusive sphere 30kpc: galaxy properties
-    mDM_30kpc               = soap.exclusive_sphere_30kpc.dark_matter_mass[lhalo]
-    mstar_30kpc             = soap.exclusive_sphere_30kpc.stellar_mass[lhalo]
-    mgas_30kpc              = soap.exclusive_sphere_30kpc.gas_mass[lhalo]
-    sf_mgas_30kpc           = soap.exclusive_sphere_30kpc.star_forming_gas_mass[lhalo]
-    mHI_30kpc               = soap.exclusive_sphere_30kpc.atomic_hydrogen_mass[lhalo]
-    mH2_30kpc               = soap.exclusive_sphere_30kpc.molecular_hydrogen_mass[lhalo]
-    DT_30kpc                = soap.exclusive_sphere_30kpc.disc_to_total_stellar_mass_fraction[lhalo]
-    SFR_30kpc               = soap.exclusive_sphere_30kpc.star_formation_rate[lhalo]
-    kappa_co_stars_30kpc    = soap.exclusive_sphere_30kpc.kappa_corot_stars[lhalo]
+    mDM_30kpc               = read_selected(soap.exclusive_sphere_30kpc, 'dark_matter_mass', lhalo)
+    mstar_30kpc             = read_selected(soap.exclusive_sphere_30kpc, 'stellar_mass', lhalo)
+    mgas_30kpc              = read_selected(soap.exclusive_sphere_30kpc, 'gas_mass', lhalo)
+    sf_mgas_30kpc           = read_selected(soap.exclusive_sphere_30kpc, 'star_forming_gas_mass', lhalo)
+    mHI_30kpc               = read_selected(soap.exclusive_sphere_30kpc, 'atomic_hydrogen_mass', lhalo)
+    mH2_30kpc               = read_selected(soap.exclusive_sphere_30kpc, 'molecular_hydrogen_mass', lhalo)
+    DT_30kpc                = read_selected(soap.exclusive_sphere_30kpc, 'disc_to_total_stellar_mass_fraction', lhalo)
+    SFR_30kpc               = read_selected(soap.exclusive_sphere_30kpc, 'star_formation_rate', lhalo)
+    kappa_co_stars_30kpc    = read_selected(soap.exclusive_sphere_30kpc, 'kappa_corot_stars', lhalo)
 
     # -- luminosities are in the following order: u, g, r, i, z, Y, J, H, K
-    Lstar_g_30kpc           = soap.inclusive_sphere_30kpc.stellar_luminosity[lhalo,1]
-    Lstar_r_30kpc           = soap.inclusive_sphere_30kpc.stellar_luminosity[lhalo,2]
-    Lstar_z_30kpc           = soap.inclusive_sphere_30kpc.stellar_luminosity[lhalo,4]
-    Lstar_Y_30kpc           = soap.inclusive_sphere_30kpc.stellar_luminosity[lhalo,5]
+    Lstar_g_30kpc           = read_lum(soap, 'inclusive_sphere_30kpc')[:, 1]
+    Lstar_r_30kpc           = read_lum(soap, 'inclusive_sphere_30kpc')[:, 2]
+    Lstar_z_30kpc           = read_lum(soap, 'inclusive_sphere_30kpc')[:, 4]
+    Lstar_Y_30kpc           = read_lum(soap, 'inclusive_sphere_30kpc')[:, 5]
 
     # -- Inclusive sphere 30kpc: angular momentum
-    angJ_stars_30kpc        = soap.inclusive_sphere_30kpc.angular_momentum_stars[lhalo]
-    angJ_gas_30kpc          = soap.inclusive_sphere_30kpc.angular_momentum_gas[lhalo]
-    angJ_baryons_30kpc      = soap.inclusive_sphere_30kpc.angular_momentum_baryons[lhalo]
+    angJ_stars_30kpc        = read_selected(soap.inclusive_sphere_30kpc, 'angular_momentum_stars', lhalo)
+    angJ_gas_30kpc          = read_selected(soap.inclusive_sphere_30kpc, 'angular_momentum_gas', lhalo)
+    angJ_baryons_30kpc      = read_selected(soap.inclusive_sphere_30kpc, 'angular_momentum_baryons', lhalo)
     
     # --- Exclusive sphere 10kpc: galaxy properties
-    mDM_10kpc               = soap.exclusive_sphere_10kpc.dark_matter_mass[lhalo]
-    mstar_10kpc             = soap.exclusive_sphere_10kpc.stellar_mass[lhalo]
-    mgas_10kpc              = soap.exclusive_sphere_10kpc.gas_mass[lhalo]
-    sf_mgas_10kpc           = soap.exclusive_sphere_10kpc.star_forming_gas_mass[lhalo]
-    mHI_10kpc               = soap.exclusive_sphere_10kpc.atomic_hydrogen_mass[lhalo]
-    mH2_10kpc               = soap.exclusive_sphere_10kpc.molecular_hydrogen_mass[lhalo]
-    DT_10kpc                = soap.exclusive_sphere_10kpc.disc_to_total_stellar_mass_fraction[lhalo]
-    SFR_10kpc               = soap.exclusive_sphere_10kpc.star_formation_rate[lhalo]
-    kappa_co_stars_10kpc    = soap.exclusive_sphere_10kpc.kappa_corot_stars[lhalo]
+    mDM_10kpc               = read_selected(soap.exclusive_sphere_10kpc, 'dark_matter_mass', lhalo)
+    mstar_10kpc             = read_selected(soap.exclusive_sphere_10kpc, 'stellar_mass', lhalo)
+    mgas_10kpc              = read_selected(soap.exclusive_sphere_10kpc, 'gas_mass', lhalo)
+    sf_mgas_10kpc           = read_selected(soap.exclusive_sphere_10kpc, 'star_forming_gas_mass', lhalo)
+    mHI_10kpc               = read_selected(soap.exclusive_sphere_10kpc, 'atomic_hydrogen_mass', lhalo)
+    mH2_10kpc               = read_selected(soap.exclusive_sphere_10kpc, 'molecular_hydrogen_mass', lhalo)
+    DT_10kpc                = read_selected(soap.exclusive_sphere_10kpc, 'disc_to_total_stellar_mass_fraction', lhalo)
+    SFR_10kpc               = read_selected(soap.exclusive_sphere_10kpc, 'star_formation_rate', lhalo)
+    kappa_co_stars_10kpc    = read_selected(soap.exclusive_sphere_10kpc, 'kappa_corot_stars', lhalo)
 
     # -- luminosities are in the following order: u, g, r, i, z, Y, J, H, K
-    Lstar_g_10kpc           = soap.inclusive_sphere_10kpc.stellar_luminosity[lhalo,1]
-    Lstar_r_10kpc           = soap.inclusive_sphere_10kpc.stellar_luminosity[lhalo,2]
-    Lstar_z_10kpc           = soap.inclusive_sphere_10kpc.stellar_luminosity[lhalo,4]
-    Lstar_Y_10kpc           = soap.inclusive_sphere_10kpc.stellar_luminosity[lhalo,5]
+    Lstar_g_10kpc           = read_lum(soap, 'inclusive_sphere_10kpc')[:, 1]
+    Lstar_r_10kpc           = read_lum(soap, 'inclusive_sphere_10kpc')[:, 2]
+    Lstar_z_10kpc           = read_lum(soap, 'inclusive_sphere_10kpc')[:, 4]
+    Lstar_Y_10kpc           = read_lum(soap, 'inclusive_sphere_10kpc')[:, 5]
 
     # -- Inclusive sphere 30kpc: angular momentum
-    angJ_stars_10kpc        = soap.inclusive_sphere_10kpc.angular_momentum_stars[lhalo]
-    angJ_gas_10kpc          = soap.inclusive_sphere_10kpc.angular_momentum_gas[lhalo]
-    angJ_baryons_10kpc      = soap.inclusive_sphere_10kpc.angular_momentum_baryons[lhalo]
+    angJ_stars_10kpc        = read_selected(soap.inclusive_sphere_10kpc, 'angular_momentum_stars', lhalo)
+    angJ_gas_10kpc          = read_selected(soap.inclusive_sphere_10kpc, 'angular_momentum_gas', lhalo)
+    angJ_baryons_10kpc      = read_selected(soap.inclusive_sphere_10kpc, 'angular_momentum_baryons', lhalo)
     
     # --- Exclusive sphere 3kpc: galaxy properties
-    mDM_3kpc               = soap.exclusive_sphere_3kpc.dark_matter_mass[lhalo]
-    mstar_3kpc             = soap.exclusive_sphere_3kpc.stellar_mass[lhalo]
-    mgas_3kpc              = soap.exclusive_sphere_3kpc.gas_mass[lhalo]
-    sf_mgas_3kpc           = soap.exclusive_sphere_3kpc.star_forming_gas_mass[lhalo]
-    mHI_3kpc               = soap.exclusive_sphere_3kpc.atomic_hydrogen_mass[lhalo]
-    mH2_3kpc               = soap.exclusive_sphere_3kpc.molecular_hydrogen_mass[lhalo]
-    DT_3kpc                = soap.exclusive_sphere_3kpc.disc_to_total_stellar_mass_fraction[lhalo]
-    SFR_3kpc               = soap.exclusive_sphere_3kpc.star_formation_rate[lhalo]
-    kappa_co_stars_3kpc    = soap.exclusive_sphere_3kpc.kappa_corot_stars[lhalo]
+    mDM_3kpc               = read_selected(soap.exclusive_sphere_3kpc, 'dark_matter_mass', lhalo)
+    mstar_3kpc             = read_selected(soap.exclusive_sphere_3kpc, 'stellar_mass', lhalo)
+    mgas_3kpc              = read_selected(soap.exclusive_sphere_3kpc, 'gas_mass', lhalo)
+    sf_mgas_3kpc           = read_selected(soap.exclusive_sphere_3kpc, 'star_forming_gas_mass', lhalo)
+    mHI_3kpc               = read_selected(soap.exclusive_sphere_3kpc, 'atomic_hydrogen_mass', lhalo)
+    mH2_3kpc               = read_selected(soap.exclusive_sphere_3kpc, 'molecular_hydrogen_mass', lhalo)
+    DT_3kpc                = read_selected(soap.exclusive_sphere_3kpc, 'disc_to_total_stellar_mass_fraction', lhalo)
+    SFR_3kpc               = read_selected(soap.exclusive_sphere_3kpc, 'star_formation_rate', lhalo)
+    kappa_co_stars_3kpc    = read_selected(soap.exclusive_sphere_3kpc, 'kappa_corot_stars', lhalo)
 
     # -- luminosities are in the following order: u, g, r, i, z, Y, J, H, K
-    Lstar_g_3kpc           = soap.inclusive_sphere_3kpc.stellar_luminosity[lhalo,1]
-    Lstar_r_3kpc           = soap.inclusive_sphere_3kpc.stellar_luminosity[lhalo,2]
-    Lstar_z_3kpc           = soap.inclusive_sphere_3kpc.stellar_luminosity[lhalo,4]
-    Lstar_Y_3kpc           = soap.inclusive_sphere_3kpc.stellar_luminosity[lhalo,5]
+    Lstar_g_3kpc           = read_lum(soap, 'inclusive_sphere_3kpc')[:, 1]
+    Lstar_r_3kpc           = read_lum(soap, 'inclusive_sphere_3kpc')[:, 2]
+    Lstar_z_3kpc           = read_lum(soap, 'inclusive_sphere_3kpc')[:, 4]
+    Lstar_Y_3kpc           = read_lum(soap, 'inclusive_sphere_3kpc')[:, 5]
 
     # -- Inclusive sphere 30kpc: angular momentum
-    angJ_stars_3kpc        = soap.inclusive_sphere_3kpc.angular_momentum_stars[lhalo]
-    angJ_gas_3kpc          = soap.inclusive_sphere_3kpc.angular_momentum_gas[lhalo]
-    angJ_baryons_3kpc      = soap.inclusive_sphere_3kpc.angular_momentum_baryons[lhalo]
+    angJ_stars_3kpc        = read_selected(soap.inclusive_sphere_3kpc, 'angular_momentum_stars', lhalo)
+    angJ_gas_3kpc          = read_selected(soap.inclusive_sphere_3kpc, 'angular_momentum_gas', lhalo)
+    angJ_baryons_3kpc      = read_selected(soap.inclusive_sphere_3kpc, 'angular_momentum_baryons', lhalo)
     
     # --- In spherical r200crit: halo properties
-    N200              = soap.spherical_overdensity_200_crit.number_of_dark_matter_particles[lhalo]
-    M200              = soap.spherical_overdensity_200_crit.total_mass[lhalo]
-    r200              = soap.spherical_overdensity_200_crit.soradius[lhalo]
-    angJ_DM           = soap.spherical_overdensity_200_crit.angular_momentum_dark_matter[lhalo]
-    velCOM_stars      = soap.spherical_overdensity_500_crit.stellar_centre_of_mass_velocity[lhalo]
-    fsub              = soap.spherical_overdensity_200_crit.mass_fraction_satellites[lhalo]
-    concentration     = soap.spherical_overdensity_200_crit.concentration[lhalo]
-    spin              = soap.spherical_overdensity_200_crit.spin_parameter[lhalo]
+    N200              = read_selected(soap.spherical_overdensity_200_crit, 'number_of_dark_matter_particles', lhalo)
+    M200              = read_selected(soap.spherical_overdensity_200_crit, 'total_mass', lhalo)
+    r200              = read_selected(soap.spherical_overdensity_200_crit, 'soradius', lhalo)
+    angJ_DM           = read_selected(soap.spherical_overdensity_200_crit, 'angular_momentum_dark_matter', lhalo)
+    velCOM_stars      = read_selected(soap.spherical_overdensity_500_crit, 'stellar_centre_of_mass_velocity', lhalo)
+    fsub              = read_selected(soap.spherical_overdensity_200_crit, 'mass_fraction_satellites', lhalo)
+    concentration     = read_selected(soap.spherical_overdensity_200_crit, 'concentration', lhalo)
+    spin              = read_selected(soap.spherical_overdensity_200_crit, 'spin_parameter', lhalo)
 
     # --- HBT halo properties
-    is_central        = soap.input_halos.is_central[lhalo]
-    halo_centre       = soap.input_halos.halo_centre[lhalo]
-    TrackId           = soap.input_halos_hbtplus.track_id[lhalo]
+    is_central        = read_selected(soap.input_halos, 'is_central', lhalo)
+    halo_centre       = read_selected(soap.input_halos, 'halo_centre', lhalo)
+    TrackId           = read_selected(soap.input_halos_hbtplus, 'track_id', lhalo)
     
+    print(f'  Peak memory after SOAP reads: {peak_mem_gb():.1f} GB')
+
     # --- convert Units
     rhalf_stars.convert_to_units('kpc')            ; rhalf_stars.convert_to_physical()
     rhalf_gas.convert_to_units('kpc')              ; rhalf_gas.convert_to_physical()
