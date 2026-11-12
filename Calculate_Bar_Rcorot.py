@@ -310,6 +310,9 @@ if __name__ == "__main__":
     import swiftsimio as sw
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--snap", type=int, default=snap,
+                        help=f"snapshot number (default: {snap}); the Prof / Region / Omega "
+                             "outputs for this snapshot must already exist")
     parser.add_argument("--chunk-id", type=int, default=0)
     parser.add_argument("--n-chunks", type=int, default=1)
     parser.add_argument("--n-workers", type=int, default=N_WORKERS,
@@ -317,6 +320,7 @@ if __name__ == "__main__":
                              "lower this if the job runs out of memory")
     args = parser.parse_args()
     N_WORKERS = max(1, args.n_workers)
+    snap      = args.snap
 
     for idir, Dir in enumerate(BoxDir):
 
@@ -515,6 +519,7 @@ if __name__ == "__main__":
             grp2 = output.create_group("Profiles")
 
             grp0.create_dataset('Redshift',        data=1./ScaleFactor - 1, dtype='float')
+            grp0.create_dataset('Snapshot',        data=snap,               dtype='int')
             grp0.create_dataset('ChunkId',         data=args.chunk_id,      dtype='int')
             grp0.create_dataset('NChunks',         data=args.n_chunks,      dtype='int')
             grp0.create_dataset('CellSizeKpc',     data=cell_size_val,      dtype='float')

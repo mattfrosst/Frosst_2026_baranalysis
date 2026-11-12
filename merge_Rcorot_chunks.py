@@ -16,10 +16,19 @@ fname    = "CoRotation_"
 snap     = 127
 BasePath = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/" #COSMA path
 
-ext3       = str(snap).zfill(3)
-OutputsDir = BasePath + BoxDir + RunDir
-chunk_glob = OutputsDir + fname + ext3 + "_chunk*.hdf5"
-merged_fn  = OutputsDir + fname + ext3 + "_merged.hdf5"
+TAG      = "_merged"   # merged file is <fname><snap><TAG>.hdf5 (e.g. --tag _barbins)
+
+
+def set_paths(snap_number, tag=TAG):
+    """Chunk pattern and merged-file name for one snapshot."""
+    global ext3, OutputsDir, chunk_glob, merged_fn
+    ext3       = str(snap_number).zfill(3)
+    OutputsDir = BasePath + BoxDir + RunDir
+    chunk_glob = OutputsDir + fname + ext3 + "_chunk*.hdf5"
+    merged_fn  = OutputsDir + fname + ext3 + tag + ".hdf5"
+
+
+set_paths(snap)
 
 DATASETS_HALO = [
     'TrackId', 'r50_stars',
@@ -231,4 +240,11 @@ def main():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--snap", type=int, default=snap, help=f"snapshot number (default: {snap})")
+    parser.add_argument("--tag", default=TAG,
+                        help=f"suffix for the merged file name (default: {TAG})")
+    args = parser.parse_args()
+    set_paths(args.snap, args.tag)
     main()
