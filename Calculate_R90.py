@@ -17,14 +17,19 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 # Stellar sizes enclosing 50 and 90 per cent of the stellar mass and of the g-, r- and i-band
 # luminosity, for every galaxy (for comparison with observed disc sizes, e.g. R90).
 #
-# For each galaxy, all star particles within a 3D sphere of R_APERTURE (50 kpc, physical) of the
+# For each galaxy, all star particles within a 3D sphere of R_APERTURE (default 50 kpc, physical;
+# set with --aperture) of the
 # SOAP halo centre are used (all particles, not only bound ones -- as Calculate_Bar_Prof.py with
 # DoBound = False). For each weight (mass, L_g, L_r, L_i) we store:
 #   R50_*, R90_* : projected FACE-ON radii [kpc], i.e. the cylindrical R enclosing 50 / 90 per
 #                  cent of the weight in the aperture. The face-on frame is the stellar angular
 #                  momentum within 50 kpc, as Calculate_Bar_Prof.py.
 #   r50_*, r90_* : 3D spherical radii [kpc] enclosing 50 / 90 per cent of the weight.
-# Fractions are of the total within the aperture. Luminosities are the rest-frame, dust-free
+# Fractions are of the total within the aperture. The face-on frame is always that of SOAP's 50 kpc
+# sphere, whatever the aperture, so changing --aperture changes only which particles are counted.
+# Runs with a non-default aperture are written with an '_ap<N>kpc' tag (e.g. Stellar_Sizes_127_ap30kpc.hdf5),
+# so they never overwrite the default 50 kpc output.
+# Luminosities are the rest-frame, dust-free
 # GAMA-band luminosities of the snapshot (BC03; Trayford et al. 2015), so no dust attenuation and
 # no surface-brightness limit are applied.
 # Sanity check: r50_Mass should be close to SOAP's bound_subhalo half_mass_radius_stars (stored
@@ -57,7 +62,7 @@ fname        = "Stellar_Sizes_"
 # ---- analysis Information ----
 Nstar_min    = 5e3   # Minimum number of stellar particles (same selection as the bar catalogues)
 Nstar_max    = 1e10  # Maximum number of stellar particles
-R_APERTURE   = 50.0  # 3D aperture [physical kpc] (as Calculate_Bar_Prof.py and SOAP's 50 kpc spheres)
+R_APERTURE   = 50.0  # default 3D aperture [physical kpc] (as Calculate_Bar_Prof.py and SOAP's 50 kpc spheres)
 FRACTIONS    = (0.5, 0.9)
 WEIGHTS      = ['Mass', 'g', 'r', 'i']     # stellar mass and GAMA g, r, i luminosities
 
@@ -94,7 +99,7 @@ def enclosing_radius(r, w, fracs=FRACTIONS):
     cum   = np.cumsum(w[order]) / tot
     return np.interp(fracs, cum, r[order])
 
-def sizes_from_particles(pos, weights, halo_list):
+def sizes_from_particles(pos, weights, halo_list, r_ap):
     # Measure every galaxy in halo_list from one set of particles (no periodic wrap needed:
     # each read is a region inside the box that contains the galaxies' whole apertures).
     # halo_list entries: (local_i, centre_phys[3], trans[3,3])
@@ -104,7 +109,7 @@ def sizes_from_particles(pos, weights, halo_list):
     results = []
     for (local_i, c, trans) in halo_list:
         out = np.full((nw, 2, nf), np.nan)
-        idx = tree.query_ball_point(c, R_APERTURE) if tree is not None else []
+        idx = tree.query_ball_point(c, r_ap) if tree is not None else []
         if len(idx) > 0:
             x   = (trans @ (pos[idx] - c).T).T
             R2d = np.hypot(x[:, 0], x[:, 1])           # face-on projected radius
@@ -143,9 +148,9 @@ def load_star_region(Swiftfile, lo_comov, hi_comov):
 
 def measure_region(task):
     # Worker: read one region and measure every galaxy assigned to it.
-    (Swiftfile, lo_comov, hi_comov, halo_list) = task
+    (Swiftfile, lo_comov, hi_comov, halo_list, r_ap) = task
     pos, weights = load_star_region(Swiftfile, lo_comov, hi_comov)
-    return sizes_from_particles(pos, weights, halo_list), len(pos), peak_mem_gb()
+    return sizes_from_particles(pos, weights, halo_list, r_ap), len(pos), peak_mem_gb()
 
 def assign_cells(centres_comov, r_search_comov, cell_size, n_cells, boxsize):
     # Home cell of each galaxy, and whether its aperture fits inside that cell (pass 1),
@@ -166,8 +171,13 @@ if __name__ == "__main__":
                         help=f"snapshot number to analyse (default: {snap}, set at the top of this script)")
     parser.add_argument("--chunk-id", type=int, default=0)
     parser.add_argument("--n-chunks", type=int, default=1)
+    parser.add_argument("--aperture", type=float, default=R_APERTURE,
+                        help=f"3D aperture radius [physical kpc] (default: {R_APERTURE:g})")
     args = parser.parse_args()
     snap = args.snap
+    r_ap = args.aperture
+    ap_tag = "" if r_ap == R_APERTURE else f"_ap{r_ap:g}kpc"
+    print(f'Aperture: {r_ap:g} physical kpc')
 
     for idir, Dir in enumerate(BoxDir):
 
@@ -214,7 +224,7 @@ if __name__ == "__main__":
         print(f'  Cell size: {cell_size:.1f} comoving kpc ({n_cells}^3 cells); using {N_WORKERS} workers')
 
         c_comov = centres / ScaleFactor
-        r_comov = np.full(n_gal, R_APERTURE / ScaleFactor)
+        r_comov = np.full(n_gal, r_ap / ScaleFactor)
         cell_idx, cell_flat, inside, box_edge = assign_cells(c_comov, r_comov, cell_size, n_cells, box_comov)
 
         # --- This chunk's galaxies: chosen by home cell, so chunks read disjoint cells ---
@@ -237,9 +247,9 @@ if __name__ == "__main__":
         tasks = []
         for idx, halo_list in cell_groups.items():
             lo = np.array(idx) * cell_size
-            tasks.append((Swiftfile, lo, lo + cell_size, halo_list))
+            tasks.append((Swiftfile, lo, lo + cell_size, halo_list, r_ap))
         for i in pass2:
-            tasks.append((Swiftfile, c_comov[i] - r_comov[i], c_comov[i] + r_comov[i], [halo_entry(i)]))
+            tasks.append((Swiftfile, c_comov[i] - r_comov[i], c_comov[i] + r_comov[i], [halo_entry(i)], r_ap))
         tasks.sort(key=lambda t: -len(t[3]))   # biggest cells first, for load balancing
         print(f'  {len(cell_groups)} cell reads + {len(pass2)} single-galaxy reads')
 
@@ -264,13 +274,13 @@ if __name__ == "__main__":
 
         # --- Write to hdf5 ---
         suffix = f"_chunk{args.chunk_id:04d}" if args.n_chunks > 1 else ""
-        fn = OutBase+Dir+RunDir+fname+ext3+suffix+".hdf5"
+        fn = OutBase+Dir+RunDir+fname+ext3+ap_tag+suffix+".hdf5"
         print('\n Writing to:', fn)
         os.makedirs(os.path.dirname(fn), exist_ok=True)
         with h5.File(fn, "w") as output:
             grp0 = output.create_group("Header")
             grp0.create_dataset('Redshift',        data=redshift)
-            grp0.create_dataset('ApertureKpc',     data=R_APERTURE)
+            grp0.create_dataset('ApertureKpc',     data=r_ap)
             grp0.create_dataset('ChunkId',         data=args.chunk_id)
             grp0.create_dataset('NChunks',         data=args.n_chunks)
             grp0.create_dataset('NGalTotal',       data=n_gal)
@@ -279,7 +289,7 @@ if __name__ == "__main__":
             grp0.create_dataset('NHalosIncluded',  data=len(pass1) + len(pass2))
             grp0.attrs['description'] = ('Radii [physical kpc] enclosing 50 and 90 per cent of the stellar mass and '
                                          'the rest-frame, dust-free GAMA g, r, i luminosity of all star particles '
-                                         'within a 3D aperture of ApertureKpc. R*: face-on projected (cylindrical); '
+                                         'within a 3D aperture of ApertureKpc (face-on frame from SOAP\'s 50 kpc sphere). R*: face-on projected (cylindrical); '
                                          'r*: 3D spherical. GlobalIndex is the position in the full Nstar-selected '
                                          'galaxy list.')
 
