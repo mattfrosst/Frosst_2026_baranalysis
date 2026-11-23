@@ -40,6 +40,18 @@ bname        = "Stars_Mproj_Bar_Omega_"
 Nstar_min    = 5e3  # Minimum number of stellar particles
 Nstar_max    = 1e10 # Maximum number of stellar particles
 
+# --- optional command-line overrides of the box, run and snapshot set above,
+# --- e.g. python Calculate_Bar_Omega.py --box L200_m6 --run THERMAL_AGN_m6 --snap 92
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("--box",  type=str, default=None, help=f"box directory (default: {BoxDir[0].rstrip('/')})")
+parser.add_argument("--run",  type=str, default=None, help=f"run directory (default: {RunDir.rstrip('/')})")
+parser.add_argument("--snap", type=int, default=snap, help=f"snapshot number (default: {snap})")
+args   = parser.parse_args()
+if args.box is not None: BoxDir = [args.box.rstrip('/') + '/']
+if args.run is not None: RunDir = args.run.rstrip('/') + '/'
+snap   = args.snap
+
 for     idir,  Dir  in enumerate(BoxDir):
 
     ext4         = str(snap).zfill(4)
@@ -65,8 +77,8 @@ for     idir,  Dir  in enumerate(BoxDir):
     rhalf_stars       = soap.bound_subhalo.half_mass_radius_stars[lhalo]
     nstar             = soap.bound_subhalo.number_of_star_particles[lhalo]
 
-    # --- In spherical r200crit: halo properties
-    velCOM_stars      = soap.spherical_overdensity_500_crit.stellar_centre_of_mass_velocity[lhalo]
+    # --- Bulk stellar velocity of the galaxy
+    velCOM_stars      = soap.exclusive_sphere_50kpc.stellar_centre_of_mass_velocity[lhalo]  # exclusive sphere: SO properties (e.g. SO/500_crit) are zero for satellites in SOAP
 
     # -- Inclusive sphere 50kpc: angular momentum
     angJ_stars        = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo]

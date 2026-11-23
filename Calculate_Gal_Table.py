@@ -211,7 +211,7 @@ for     idir,  Dir  in enumerate(BoxDir):
     M200              = read_selected(soap.spherical_overdensity_200_crit, 'total_mass', lhalo)
     r200              = read_selected(soap.spherical_overdensity_200_crit, 'soradius', lhalo)
     angJ_DM           = read_selected(soap.spherical_overdensity_200_crit, 'angular_momentum_dark_matter', lhalo)
-    velCOM_stars      = read_selected(soap.spherical_overdensity_500_crit, 'stellar_centre_of_mass_velocity', lhalo)
+    velCOM_stars      = read_selected(soap.exclusive_sphere_50kpc, 'stellar_centre_of_mass_velocity', lhalo)  # exclusive sphere: SO properties (e.g. SO/500_crit) are zero for satellites in SOAP
     fsub              = read_selected(soap.spherical_overdensity_200_crit, 'mass_fraction_satellites', lhalo)
     concentration     = read_selected(soap.spherical_overdensity_200_crit, 'concentration', lhalo)
     spin              = read_selected(soap.spherical_overdensity_200_crit, 'spin_parameter', lhalo)

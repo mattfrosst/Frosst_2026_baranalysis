@@ -178,7 +178,7 @@ for idir, Dir in enumerate(BoxDir):
     nstar        = soap.bound_subhalo.number_of_star_particles[lhalo]
     mstar        = soap.exclusive_sphere_50kpc.stellar_mass[lhalo]  # for the mass axis in downstream plots
 
-    velCOM_stars = soap.spherical_overdensity_500_crit.stellar_centre_of_mass_velocity[lhalo]
+    velCOM_stars = soap.exclusive_sphere_50kpc.stellar_centre_of_mass_velocity[lhalo]  # exclusive sphere: SO properties (e.g. SO/500_crit) are zero for satellites in SOAP
     angJ_stars   = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo]
 
     halo_centre  = soap.input_halos.halo_centre[lhalo]
