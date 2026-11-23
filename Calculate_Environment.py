@@ -89,6 +89,29 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 #     velocity cut) and masses replace r-band luminosities.
 #
 #  4. r_kNN_cMpc: distance to the k-th nearest tracer, k in KNN_OUT.
+#
+#  5. ORBITS OF THE PERTURBERS (host halo and nearest neighbour), for tidal
+#     strength and orbital-angle analyses. PHYSICAL units, in the frame of the
+#     target galaxy, with the box axes as coordinates:
+#       {Host,Neighbour}_RelPos_pkpc  (n, 3) perturber centre - galaxy centre
+#                             (nearest periodic image), physical kpc
+#       {Host,Neighbour}_RelVel_kms   (n, 3) perturber - galaxy velocity, km/s,
+#                             physical: peculiar velocities (BoundSubhalo
+#                             centre-of-mass) plus the Hubble flow H(z) r
+#       {Host,Neighbour}_Vrad_kms     radial velocity, r.v/|r| (< 0: approaching)
+#       {Host,Neighbour}_BoundMass    BoundSubhalo/TotalMass of the perturber [Msun]
+#       {Host,Neighbour}_CosOrbit     cosine of the angle between the disc spin
+#                             and the perturber's orbital angular momentum
+#                             r x v about the galaxy: +1 prograde in the disc
+#                             plane, -1 retrograde (Peschken & Lokas 2019)
+#       BoundMass             the target's own BoundSubhalo/TotalMass [Msun]
+#       StarsSpinDir          (n, 3) unit vector of the stellar angular momentum
+#                             within 50 kpc (exclusive sphere if SOAP has it,
+#                             else inclusive; Header attribute SpinAperture)
+#     Host fields are NaN for centrals and hostless satellites; neighbour
+#     fields are NaN where there is no neighbour. One snapshot gives the
+#     instantaneous orbit only: pericentres between snapshots follow from
+#     (r, v) and a model of the host potential in the post-analysis.
 # ==========================================================================
 
 # --------------------------------------------------------------------------
@@ -286,6 +309,30 @@ def nearest_massive_neighbour(tree, pos_tr, mass_tr, pos, mass_min, self_idx, bo
     return nb_dist, nb_idx
 
 
+def relative_orbit(pos_g, vel_g, pos_p, vel_p, box, scale_factor, hubble, spin):
+    """
+    Orbit of perturbers p about galaxies g, in physical units.
+      pos_* : comoving positions [cMpc] (n, 3), wrapped into the box
+      vel_* : peculiar velocities [km/s] (n, 3)
+      hubble: H(z) [km/s/Mpc]
+      spin  : (n, 3) direction of the galaxy's angular momentum (need not be unit)
+    Returns rel_pos [pkpc] (n, 3), rel_vel [km/s] (n, 3), v_rad [km/s] and the
+    cosine between `spin` and the orbital angular momentum rel_pos x rel_vel.
+    Rows with any non-finite input give NaN.
+    """
+    d       = pos_p - pos_g
+    d      -= box * np.round(d / box)                      # nearest periodic image
+    r_phys  = scale_factor * d                             # pMpc
+    v_rel   = (vel_p - vel_g) + hubble * r_phys            # km/s, peculiar + Hubble flow
+    r_kpc   = 1e3 * r_phys
+    rn      = np.linalg.norm(r_kpc, axis=1)
+    v_rad   = np.sum(r_kpc * v_rel, axis=1) / rn
+    L       = np.cross(r_kpc, v_rel)
+    norm    = np.linalg.norm(L, axis=1) * np.linalg.norm(spin, axis=1)
+    cos_orb = np.sum(L * spin, axis=1) / norm
+    return r_kpc, v_rel, v_rad, np.clip(cos_orb, -1.0, 1.0)
+
+
 # ==========================================================================
 if __name__ == "__main__":
 
@@ -370,6 +417,11 @@ if __name__ == "__main__":
         never_sat = iso_raw > 1e9
         SnapIso   = np.where(never_sat, 0, iso_raw).astype(np.int64)
         SnapIso[never_sat] = -1
+        # bulk (peculiar) velocity of every kept subhalo, for the perturber orbits
+        vel_q     = soap.bound_subhalo.centre_of_mass_velocity[need]
+        vel_q.convert_to_units('km/s')  ; vel_q.convert_to_physical()
+        vel       = np.asarray(vel_q.value, dtype=np.float64)
+        del vel_q
 
         # --- convert Units (lengths: comoving Mpc; masses: Msun)
         centre.convert_to_units('Mpc')  ; centre.convert_to_comoving()
@@ -395,6 +447,10 @@ if __name__ == "__main__":
             rho_crit   = float(cos['Critical density [internal units]'][0]) * to_Msun_Mpc3   # physical
             rho_matter = float(cos['Omega_m'][0]) * to_Msun_Mpc3 \
                        * float(cos['Critical density at redshift zero [internal units]'][0])  # comoving
+            # H(z) [km/s/Mpc] from the critical density: rho_crit = 3 H^2 / (8 pi G)
+            G_cgs      = 6.67430e-8
+            rho_crit_cgs = rho_crit * MSUN_CGS / MPC_CGS**3
+            Hubble     = np.sqrt(8.0 * np.pi * G_cgs * rho_crit_cgs / 3.0) * MPC_CGS / 1e5
 
         # --- tracer sample and its box-mean densities (comoving)
         pos_tr        = pos[trc]
@@ -490,6 +546,40 @@ if __name__ == "__main__":
               f'(fraction < 1: {np.nanmean(Rn_over_rvir[has_nb] < 1):.2f}); '
               f'{int(np.sum(~has_nb))} targets have no neighbour massive enough')
 
+        # ---------------- 5. perturber orbits ----------------
+        # stellar spin of the targets: exclusive sphere (bound particles only, so a
+        # satellite's spin is not contaminated by its host), else the inclusive one
+        try:
+            spin_q, spin_ap = soap.exclusive_sphere_50kpc.angular_momentum_stars[lhalo], 'ExclusiveSphere/50kpc'
+        except AttributeError:
+            spin_q, spin_ap = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo], 'InclusiveSphere/50kpc'
+        spin      = np.asarray(spin_q.value, dtype=np.float64)
+        spin_dir  = spin / np.linalg.norm(spin, axis=1)[:, None]
+        del spin_q
+
+        is_sat_h  = has_host & ~is_central[tgt]                # the host is a perturber only for satellites
+        h_rel_pos, h_rel_vel, h_vrad, h_cos = relative_orbit(
+            pos_tg, vel[tgt], pos[hh], vel[hh], box, ScaleFactor, Hubble, spin)
+        for a in (h_rel_pos, h_rel_vel):
+            a[~is_sat_h] = np.nan
+        h_vrad[~is_sat_h] = h_cos[~is_sat_h] = np.nan
+        Host_Mbound = np.where(is_sat_h, Mbound[hh], np.nan)
+
+        n_rel_pos, n_rel_vel, n_vrad, n_cos = relative_orbit(
+            pos_tg, vel[tgt], pos[nbk], vel[nbk], box, ScaleFactor, Hubble, spin)
+        for a in (n_rel_pos, n_rel_vel):
+            a[~has_nb] = np.nan
+        n_vrad[~has_nb] = n_cos[~has_nb] = np.nan
+        Nb_Mbound = np.where(has_nb, Mbound[nbk], np.nan)
+
+        # consistency: |RelPos| must reproduce the distances measured above
+        chk_h = np.nanmax(np.abs(np.linalg.norm(h_rel_pos, axis=1) - 1e3 * ScaleFactor * DistToHost)[is_sat_h], initial=0.0)
+        chk_n = np.nanmax(np.abs(np.linalg.norm(n_rel_pos, axis=1) - 1e3 * ScaleFactor * Rn)[has_nb], initial=0.0)
+        print(f'  Orbits: H(z) = {Hubble:.2f} km/s/Mpc, spin from {spin_ap}; max |RelPos| - distance: '
+              f'host {chk_h:.2e}, neighbour {chk_n:.2e} pkpc')
+        print(f'  Host orbits (satellites): median |v| = {np.nanmedian(np.linalg.norm(h_rel_vel, axis=1)):.0f} km/s, '
+              f'prograde (cos > 0) fraction = {np.nanmean(h_cos[is_sat_h] > 0):.2f}', flush=True)
+
         # ---------------- write ----------------
         fn = OutBase + Dir + RunDir + fname + ext3 + ".hdf5"
         print('\n Writing to:', fn)
@@ -553,5 +643,21 @@ if __name__ == "__main__":
 
             # --- 4. k-th nearest tracer: (galaxy x KNN) ---
             grp1.create_dataset('r_kNN_cMpc',           data=r_kNN,              dtype='float')
+
+            # --- 5. perturber orbits (physical, galaxy frame) ---
+            grp0.create_dataset('Hubble_kms_Mpc',       data=Hubble,             dtype='float')
+            grp0.attrs['SpinAperture'] = spin_ap
+            grp1.create_dataset('BoundMass',            data=Mbound[tgt],        dtype='float')
+            grp1.create_dataset('StarsSpinDir',         data=spin_dir,           dtype='float')
+            grp1.create_dataset('Host_RelPos_pkpc',     data=h_rel_pos,          dtype='float')
+            grp1.create_dataset('Host_RelVel_kms',      data=h_rel_vel,          dtype='float')
+            grp1.create_dataset('Host_Vrad_kms',        data=h_vrad,             dtype='float')
+            grp1.create_dataset('Host_BoundMass',       data=Host_Mbound,        dtype='float')
+            grp1.create_dataset('Host_CosOrbit',        data=h_cos,              dtype='float')
+            grp1.create_dataset('Neighbour_RelPos_pkpc', data=n_rel_pos,         dtype='float')
+            grp1.create_dataset('Neighbour_RelVel_kms', data=n_rel_vel,          dtype='float')
+            grp1.create_dataset('Neighbour_Vrad_kms',   data=n_vrad,             dtype='float')
+            grp1.create_dataset('Neighbour_BoundMass',  data=Nb_Mbound,          dtype='float')
+            grp1.create_dataset('Neighbour_CosOrbit',   data=n_cos,              dtype='float')
 
     sys.exit()
