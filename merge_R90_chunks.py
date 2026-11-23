@@ -51,9 +51,11 @@ def main():
     parser.add_argument("--snap", type=int, required=True)
     parser.add_argument("--aperture", type=float, default=50.0,
                         help="aperture [physical kpc] the chunks were run with (default: 50, no filename tag)")
+    parser.add_argument("--bound", action="store_true",
+                        help="merge the bound-particles-only run (Calculate_R90.py --bound; '_bound' filename tag)")
     args = parser.parse_args()
 
-    ext3       = str(args.snap).zfill(3) + ("" if args.aperture == 50.0 else f"_ap{args.aperture:g}kpc")
+    ext3       = str(args.snap).zfill(3) + ("" if args.aperture == 50.0 else f"_ap{args.aperture:g}kpc") + ("_bound" if args.bound else "")
     OutputsDir = BasePath + BoxDir + RunDir
     chunk_glob = OutputsDir + fname + ext3 + "_chunk*.hdf5"
     merged_fn  = OutputsDir + fname + ext3 + ".hdf5"
@@ -71,6 +73,9 @@ def main():
         aperture  = float(hdr['ApertureKpc'][()])
         cell_size = float(hdr['CellSizeKpc'][()])
         desc      = hdr.attrs['description']
+        bound     = int(hdr['BoundOnly'][()]) if 'BoundOnly' in hdr else 0
+    if bound != int(args.bound):
+        sys.exit(f"Chunks have BoundOnly = {bound}, but --bound is {args.bound}. Aborting.")
     if abs(aperture - args.aperture) > 1e-9:
         sys.exit(f"Chunks have ApertureKpc = {aperture:g}, but --aperture {args.aperture:g} was given. Aborting.")
 
@@ -120,6 +125,7 @@ def main():
         grp0 = out.create_group("Header")
         grp0.create_dataset('Redshift',       data=redshift)
         grp0.create_dataset('ApertureKpc',    data=aperture)
+        grp0.create_dataset('BoundOnly',      data=bound)
         grp0.create_dataset('CellSizeKpc',    data=cell_size)
         grp0.create_dataset('NChunksMerged',  data=n_chunks)
         grp0.create_dataset('NGalTotal',      data=n_gal)

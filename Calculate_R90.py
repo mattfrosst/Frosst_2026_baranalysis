@@ -29,6 +29,10 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, append=1)
 # sphere, whatever the aperture, so changing --aperture changes only which particles are counted.
 # Runs with a non-default aperture are written with an '_ap<N>kpc' tag (e.g. Stellar_Sizes_127_ap30kpc.hdf5),
 # so they never overwrite the default 50 kpc output.
+# --bound keeps only the star particles that are bound to the galaxy's own HBT subhalo (SOAP
+# membership files, GroupNr_bound == InputHalos/HaloCatalogueIndex), still within the aperture.
+# This removes stars of neighbouring galaxies, which otherwise contaminate R90 (mostly satellites
+# and at z >= 1). Its outputs are tagged '_bound' (e.g. Stellar_Sizes_127_bound.hdf5).
 # Luminosities are the rest-frame, dust-free
 # GAMA-band luminosities of the snapshot (BC03; Trayford et al. 2015), so no dust attenuation and
 # no surface-brightness limit are applied.
@@ -58,6 +62,9 @@ OutBase      = "/cosma8/data/do019/dc-fros1/Frosst_2026_Outputs/"
 BoxDir       = ["L200_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 
 fname        = "Stellar_Sizes_"
+# SOAP membership files (one per snapshot sub-file, same particle order); only used with --bound.
+# CHECK this path on COSMA: SOAP's Parameters/membership_filename gives where they were written.
+MemberFile   = "SOAP-HBT/membership_{ext4}/membership_{ext4}.{ifile}.hdf5"
 
 # ---- analysis Information ----
 Nstar_min    = 5e3   # Minimum number of stellar particles (same selection as the bar catalogues)
@@ -99,17 +106,20 @@ def enclosing_radius(r, w, fracs=FRACTIONS):
     cum   = np.cumsum(w[order]) / tot
     return np.interp(fracs, cum, r[order])
 
-def sizes_from_particles(pos, weights, halo_list, r_ap):
+def sizes_from_particles(pos, weights, halo_list, r_ap, grp=None):
     # Measure every galaxy in halo_list from one set of particles (no periodic wrap needed:
     # each read is a region inside the box that contains the galaxies' whole apertures).
-    # halo_list entries: (local_i, centre_phys[3], trans[3,3])
+    # halo_list entries: (local_i, centre_phys[3], trans[3,3], halo_catalogue_index)
+    # grp: GroupNr_bound of each particle (None = use all particles in the aperture).
     # Returns, per galaxy, sizes (n_weights, 2 [2D, 3D], n_fracs) [kpc] and the particle number.
     nw, nf  = weights.shape[1], len(FRACTIONS)
     tree    = cKDTree(pos) if len(pos) > 0 else None
     results = []
-    for (local_i, c, trans) in halo_list:
+    for (local_i, c, trans, hci) in halo_list:
         out = np.full((nw, 2, nf), np.nan)
-        idx = tree.query_ball_point(c, r_ap) if tree is not None else []
+        idx = np.asarray(tree.query_ball_point(c, r_ap) if tree is not None else [], dtype=np.int64)
+        if grp is not None and len(idx) > 0:
+            idx = idx[grp[idx] == hci]                  # bound to this galaxy's subhalo only
         if len(idx) > 0:
             x   = (trans @ (pos[idx] - c).T).T
             R2d = np.hypot(x[:, 0], x[:, 1])           # face-on projected radius
@@ -144,13 +154,32 @@ def load_star_region(Swiftfile, lo_comov, hi_comov):
     lum = stars.luminosities
     weights = np.column_stack([m.value,
                                np.asarray(lum.GAMA_g), np.asarray(lum.GAMA_r), np.asarray(lum.GAMA_i)])
-    return pos.value, weights
+    return pos.value, weights, np.asarray(mask.stars)
+
+def read_membership(member_files, file_offsets, ranges):
+    # GroupNr_bound of the masked stars. ranges are [start, end) indices into the snapshot's
+    # concatenated (virtual-file) star order, which is sub-file 0, 1, ... in turn; the membership
+    # files have the same per-file order. Returned in the order the masked read returns the stars.
+    out = []
+    for start, end in ranges:
+        while start < end:
+            f  = np.searchsorted(file_offsets, start, side='right') - 1
+            e  = min(end, file_offsets[f + 1])
+            with h5.File(member_files[f], 'r') as M:
+                out.append(M['PartType4/GroupNr_bound'][start - file_offsets[f]:e - file_offsets[f]])
+            start = e
+    return np.concatenate(out) if out else np.zeros(0, dtype=np.int64)
 
 def measure_region(task):
     # Worker: read one region and measure every galaxy assigned to it.
-    (Swiftfile, lo_comov, hi_comov, halo_list, r_ap) = task
-    pos, weights = load_star_region(Swiftfile, lo_comov, hi_comov)
-    return sizes_from_particles(pos, weights, halo_list, r_ap), len(pos), peak_mem_gb()
+    (Swiftfile, lo_comov, hi_comov, halo_list, r_ap, member) = task
+    pos, weights, ranges = load_star_region(Swiftfile, lo_comov, hi_comov)
+    grp = None
+    if member is not None:
+        grp = read_membership(member[0], member[1], ranges)
+        if len(grp) != len(pos):
+            raise RuntimeError(f'membership/star count mismatch ({len(grp)} vs {len(pos)})')
+    return sizes_from_particles(pos, weights, halo_list, r_ap, grp), len(pos), peak_mem_gb()
 
 def assign_cells(centres_comov, r_search_comov, cell_size, n_cells, boxsize):
     # Home cell of each galaxy, and whether its aperture fits inside that cell (pass 1),
@@ -173,11 +202,13 @@ if __name__ == "__main__":
     parser.add_argument("--n-chunks", type=int, default=1)
     parser.add_argument("--aperture", type=float, default=R_APERTURE,
                         help=f"3D aperture radius [physical kpc] (default: {R_APERTURE:g})")
+    parser.add_argument("--bound", action="store_true",
+                        help="use only star particles bound to the galaxy's own subhalo (SOAP membership)")
     args = parser.parse_args()
     snap = args.snap
     r_ap = args.aperture
-    ap_tag = "" if r_ap == R_APERTURE else f"_ap{r_ap:g}kpc"
-    print(f'Aperture: {r_ap:g} physical kpc')
+    ap_tag = ("" if r_ap == R_APERTURE else f"_ap{r_ap:g}kpc") + ("_bound" if args.bound else "")
+    print(f'Aperture: {r_ap:g} physical kpc; ' + ('bound particles only' if args.bound else 'all particles'))
 
     for idir, Dir in enumerate(BoxDir):
 
@@ -203,6 +234,7 @@ if __name__ == "__main__":
         halo_centre = read_selected(soap.input_halos, 'halo_centre', lhalo)
         is_central  = read_selected(soap.input_halos, 'is_central', lhalo)
         TrackId     = read_selected(soap.input_halos_hbtplus, 'track_id', lhalo)
+        hcat_index  = np.asarray(read_selected(soap.input_halos, 'halo_catalogue_index', lhalo))
 
         rhalf_stars.convert_to_units('kpc') ; rhalf_stars.convert_to_physical()
         mstar.convert_to_units('Msun')      ; mstar.convert_to_physical()
@@ -223,6 +255,29 @@ if __name__ == "__main__":
         n_cells     = int(round(box_comov / cell_size))
         print(f'  Cell size: {cell_size:.1f} comoving kpc ({n_cells}^3 cells); using {N_WORKERS} workers')
 
+        # --- Membership files (only with --bound): list and star-count offsets of each sub-file ---
+        member = None
+        if args.bound:
+            with h5.File(Swiftfile, 'r') as F:
+                n_files = int(np.atleast_1d(F['Header'].attrs['NumFilesPerSnapshot'])[0])
+            if n_files == 1:       # virtual file: count the sub-files next to it
+                n_files = 0
+                while os.path.exists(Swiftfile.replace('.hdf5', f'.{n_files}.hdf5')):
+                    n_files += 1
+                n_files = max(n_files, 1)
+            member_files = [BasePath+Dir+RunDir+MemberFile.format(ext4=ext4, ifile=i) for i in range(n_files)]
+            counts = []
+            for mf in member_files:
+                if not os.path.exists(mf):
+                    sys.exit(f'Membership file not found: {mf}. Set MemberFile at the top of this script.')
+                with h5.File(mf, 'r') as M:
+                    counts.append(M['PartType4/GroupNr_bound'].shape[0])
+            file_offsets = np.concatenate([[0], np.cumsum(counts)]).astype(np.int64)
+            if file_offsets[-1] != int(meta.n_stars):
+                sys.exit(f'Membership files hold {file_offsets[-1]} stars, snapshot has {int(meta.n_stars)}. Aborting.')
+            member = (member_files, file_offsets)
+            print(f'  Membership: {n_files} files, {file_offsets[-1]} stars')
+
         c_comov = centres / ScaleFactor
         r_comov = np.full(n_gal, r_ap / ScaleFactor)
         cell_idx, cell_flat, inside, box_edge = assign_cells(c_comov, r_comov, cell_size, n_cells, box_comov)
@@ -238,7 +293,7 @@ if __name__ == "__main__":
               f'{len(skipped)} skipped at the box edge)')
 
         def halo_entry(i):
-            return (i, centres[i], rotation_matrix_from_vectors(angJ[i], [0, 0, 1]))
+            return (i, centres[i], rotation_matrix_from_vectors(angJ[i], [0, 0, 1]), hcat_index[i])
 
         # --- Tasks: one per occupied cell (pass 1), one per boundary-crossing galaxy (pass 2) ---
         cell_groups = defaultdict(list)
@@ -247,9 +302,9 @@ if __name__ == "__main__":
         tasks = []
         for idx, halo_list in cell_groups.items():
             lo = np.array(idx) * cell_size
-            tasks.append((Swiftfile, lo, lo + cell_size, halo_list, r_ap))
+            tasks.append((Swiftfile, lo, lo + cell_size, halo_list, r_ap, member))
         for i in pass2:
-            tasks.append((Swiftfile, c_comov[i] - r_comov[i], c_comov[i] + r_comov[i], [halo_entry(i)], r_ap))
+            tasks.append((Swiftfile, c_comov[i] - r_comov[i], c_comov[i] + r_comov[i], [halo_entry(i)], r_ap, member))
         tasks.sort(key=lambda t: -len(t[3]))   # biggest cells first, for load balancing
         print(f'  {len(cell_groups)} cell reads + {len(pass2)} single-galaxy reads')
 
@@ -281,6 +336,7 @@ if __name__ == "__main__":
             grp0 = output.create_group("Header")
             grp0.create_dataset('Redshift',        data=redshift)
             grp0.create_dataset('ApertureKpc',     data=r_ap)
+            grp0.create_dataset('BoundOnly',       data=int(args.bound))
             grp0.create_dataset('ChunkId',         data=args.chunk_id)
             grp0.create_dataset('NChunks',         data=args.n_chunks)
             grp0.create_dataset('NGalTotal',       data=n_gal)
@@ -289,7 +345,7 @@ if __name__ == "__main__":
             grp0.create_dataset('NHalosIncluded',  data=len(pass1) + len(pass2))
             grp0.attrs['description'] = ('Radii [physical kpc] enclosing 50 and 90 per cent of the stellar mass and '
                                          'the rest-frame, dust-free GAMA g, r, i luminosity of all star particles '
-                                         'within a 3D aperture of ApertureKpc (face-on frame from SOAP\'s 50 kpc sphere). R*: face-on projected (cylindrical); '
+                                         'within a 3D aperture of ApertureKpc (if BoundOnly: only those bound to the galaxy\'s HBT subhalo; face-on frame from SOAP\'s 50 kpc sphere). R*: face-on projected (cylindrical); '
                                          'r*: 3D spherical. GlobalIndex is the position in the full Nstar-selected '
                                          'galaxy list.')
 
