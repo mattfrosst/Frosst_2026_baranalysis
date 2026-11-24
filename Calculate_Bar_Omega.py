@@ -32,6 +32,7 @@ BasePath     = "/cosma8/data/dp004/colibre/Runs/"   ; SnapBase = "colibre_"
 BoxDir       = ["L025_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/" ; snap = 127
 
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
+VERBOSE      = False # print a line per galaxy per snapshot sub-file (millions of lines for L200: keep off on COSMA)
 fname        = "Stars_Mproj_Bar_Prof_"
 rname        = "Stars_Mproj_Bar_Region_"
 bname        = "Stars_Mproj_Bar_Omega_"
@@ -176,8 +177,10 @@ for     idir,  Dir  in enumerate(BoxDir):
         star_tree = PeriodicCKDTree(boxsize, pos_stars, leafsize=100) ; print(' Star particle tree done... \n')    
     
         # --- Calculate the various sizes for each galaxy of interest
+        n_done_file = 0
         for ihalo, lh in enumerate(lhalo):
-            print('Looking at galaxy ID:', TrackId[ihalo])
+            if VERBOSE:
+                print('Looking at galaxy ID:', TrackId[ihalo])
             # -------------------------------------------------
             # --- Compute Bar Profiles for KDTree particles ---
             # -------------------------------------------------
@@ -199,7 +202,9 @@ for     idir,  Dir  in enumerate(BoxDir):
                     
                     # Fourier analysis on bar region
                     binOmega = bar_tool.analyseOmega(xbin_linear, R0bar_analysed[ihalo], R1bar_analysed[ihalo], tophat=True)
-                    print('analyseOmega', lh, binOmega)
+                    n_done_file += 1
+                    if VERBOSE:
+                        print('analyseOmega', lh, binOmega)
 
                     # --- Save data.                                               # UNITS (notes)
                     nBar_stars[ihalo]     = binOmega[0]                            # dimensionless (particle count)
@@ -213,11 +218,9 @@ for     idir,  Dir  in enumerate(BoxDir):
                     Omegaerr_stars[ihalo] = binOmega[7] / rhalf_stars[ihalo].value # km/s/kpc
                     Cov_stars[ihalo]      = binOmega[8]                            # correlation coefficient
 
-        fracs     = round(float(ihalo+1)/len(lhalo),4)
-        if ihalo % 100  ==0:
-            print(' Group:',lh,' | f:',fracs)
-        elif ihalo   ==len(lhalo)-1:
-            print(' Group:',lh,' | f:',fracs)
+        # one line per sub-file (the per-galaxy prints above are off unless VERBOSE)
+        print(f' file {ifile+1}/{total_files}: pattern speed measured for {n_done_file} galaxies '
+              f'with stars in this file', flush=True)
 
     print('nBar:',  nBar_stars)
     print('A2max:', maxA2_stars)
