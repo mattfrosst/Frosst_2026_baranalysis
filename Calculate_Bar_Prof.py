@@ -34,6 +34,13 @@ BoxDir       = ["L025_m5/"]                         ; RunDir   = "THERMAL_AGN_m5
 #BoxDir       = ["L025_m6/"]                         ; RunDir   = "THERMAL_AGN_m6/" ; snap = 127
 #BoxDir       = ["L025_m7/"]                         ; RunDir   = "THERMAL_AGN_m7/" ; snap = 127
 
+# Optional command-line override (e.g. from a SLURM array): python Calculate_Bar_Prof.py SNAP [BOX RUN]
+#   python Calculate_Bar_Prof.py 127 L200_m6 THERMAL_AGN_m6
+if len(sys.argv) > 1:
+    snap = int(sys.argv[1])
+if len(sys.argv) > 3:
+    BoxDir = [sys.argv[2].rstrip('/') + '/'] ; RunDir = sys.argv[3].rstrip('/') + '/'
+
 DoBound      = False # Use only bound particles (True) or all particles within an aperture (False)?
 fname        = "Stars_Mproj_Bar_Prof_"
 
