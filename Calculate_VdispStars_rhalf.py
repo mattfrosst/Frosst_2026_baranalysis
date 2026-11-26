@@ -159,7 +159,9 @@ if __name__ == "__main__":
         halo_centre  = soap.input_halos.halo_centre[lhalo]
         TrackId      = soap.input_halos_hbtplus.track_id[lhalo]
         velCOM_stars = soap.exclusive_sphere_50kpc.stellar_centre_of_mass_velocity[lhalo]  # exclusive sphere: SO properties (e.g. SO/500_crit) are zero for satellites in SOAP
-        angJ_stars   = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo]
+        # exclusive sphere: bound particles only; the inclusive sphere also counts host stars, whose motion
+        # dominates near pericentre and tilts or flips the face-on frame of satellites
+        angJ_stars   = soap.exclusive_sphere_50kpc.angular_momentum_stars[lhalo]
 
         rhalf_stars.convert_to_units('kpc')             ; rhalf_stars.convert_to_physical()
         halo_centre.convert_to_units('kpc')              ; halo_centre.convert_to_physical()

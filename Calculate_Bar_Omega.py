@@ -82,7 +82,9 @@ for     idir,  Dir  in enumerate(BoxDir):
     velCOM_stars      = soap.exclusive_sphere_50kpc.stellar_centre_of_mass_velocity[lhalo]  # exclusive sphere: SO properties (e.g. SO/500_crit) are zero for satellites in SOAP
 
     # -- Inclusive sphere 50kpc: angular momentum
-    angJ_stars        = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo]
+    # exclusive sphere: bound particles only; the inclusive sphere also counts host stars, whose motion
+    # dominates near pericentre and tilts or flips the face-on frame of satellites
+    angJ_stars        = soap.exclusive_sphere_50kpc.angular_momentum_stars[lhalo]
 
     # --- HBT halo properties
     halo_centre       = soap.input_halos.halo_centre[lhalo]

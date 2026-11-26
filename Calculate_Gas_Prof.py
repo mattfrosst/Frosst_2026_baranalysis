@@ -183,7 +183,8 @@ if __name__ == "__main__":
 
         rhalf_stars = read_selected(soap.bound_subhalo, 'half_mass_radius_stars', lhalo)
         mstar       = read_selected(soap.exclusive_sphere_50kpc, 'stellar_mass', lhalo)
-        angJ_stars  = read_selected(soap.inclusive_sphere_50kpc, 'angular_momentum_stars', lhalo)
+        # exclusive sphere: bound particles only (the inclusive sphere tilts the frame of satellites)
+        angJ_stars  = read_selected(soap.exclusive_sphere_50kpc, 'angular_momentum_stars', lhalo)
         halo_centre = read_selected(soap.input_halos, 'halo_centre', lhalo)
         is_central  = read_selected(soap.input_halos, 'is_central', lhalo)
         TrackId     = read_selected(soap.input_halos_hbtplus, 'track_id', lhalo)

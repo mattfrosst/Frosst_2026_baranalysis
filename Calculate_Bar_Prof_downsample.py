@@ -94,9 +94,11 @@ for     idir,  Dir  in enumerate(BoxDir):
     fsub              = soap.spherical_overdensity_200_crit.mass_fraction_satellites[lhalo]
 
     # -- Inclusive sphere 50kpc: angular momentum
-    angJ_stars        = soap.inclusive_sphere_50kpc.angular_momentum_stars[lhalo]
-    angJ_gas          = soap.inclusive_sphere_50kpc.angular_momentum_gas[lhalo]
-    angJ_baryons      = soap.inclusive_sphere_50kpc.angular_momentum_baryons[lhalo]
+    # exclusive sphere: bound particles only; the inclusive sphere also counts host stars, whose motion
+    # dominates near pericentre and tilts or flips the face-on frame of satellites
+    angJ_stars        = soap.exclusive_sphere_50kpc.angular_momentum_stars[lhalo]
+    angJ_gas          = soap.exclusive_sphere_50kpc.angular_momentum_gas[lhalo]
+    angJ_baryons      = soap.exclusive_sphere_50kpc.angular_momentum_baryons[lhalo]
 
     # --- HBT halo properties
     is_central        = soap.input_halos.is_central[lhalo]
@@ -104,10 +106,10 @@ for     idir,  Dir  in enumerate(BoxDir):
     TrackId           = soap.input_halos_hbtplus.track_id[lhalo]
     
     # -- luminosities are in the following order: u, g, r, i, z, Y, J, H, K
-    Lstar_g           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,1]
-    Lstar_r           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,2]
-    Lstar_z           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,4]
-    Lstar_Y           = soap.inclusive_sphere_50kpc.stellar_luminosity[lhalo,5]
+    Lstar_g           = soap.exclusive_sphere_50kpc.stellar_luminosity[lhalo,1]
+    Lstar_r           = soap.exclusive_sphere_50kpc.stellar_luminosity[lhalo,2]
+    Lstar_z           = soap.exclusive_sphere_50kpc.stellar_luminosity[lhalo,4]
+    Lstar_Y           = soap.exclusive_sphere_50kpc.stellar_luminosity[lhalo,5]
 
     # --- convert Units
     velCOM_stars.convert_to_units('km/s')          ; velCOM_stars.convert_to_physical()
